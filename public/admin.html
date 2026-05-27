@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="hr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SmartShade - Administrator</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header>
+    <div class="logo">SmartShade</div>
+    <nav>
+      <a href="/">Stanar</a>
+      <a href="/admin.html" class="active">Administrator</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="admin-actions">
+      <button class="btn btn-down" id="btnCloseAll">Spusti sve u zgradi</button>
+      <button class="btn btn-up" id="btnOpenAll">Podigni sve u zgradi</button>
+      <button class="btn btn-stop" id="btnCloseFloor1">Spusti Kat 1</button>
+      <button class="btn btn-stop" id="btnCloseFloor2">Spusti Kat 2</button>
+    </div>
+
+    <div class="grid">
+      <div class="card" style="grid-column: 1 / -1;">
+        <h2>Svi uređaji - Hotel Zadar</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Soba</th>
+              <th>Kat</th>
+              <th>Temperatura</th>
+              <th>Svjetlost</th>
+              <th>Roletne</th>
+              <th>Način rada</th>
+              <th>Tip</th>
+            </tr>
+          </thead>
+          <tbody id="devicesTable"></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>Procjena uštede energije</h2>
+        <div class="total-savings" id="totalSavings">-- kWh</div>
+        <div id="energyChart"></div>
+      </div>
+
+      <div class="card">
+        <h2>Upravljanje korisnicima</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Korisnik</th>
+              <th>Uloga</th>
+              <th>Pristup sobama</th>
+            </tr>
+          </thead>
+          <tbody id="usersTable"></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <div class="notifications" id="notifications"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/admin.js"></script>
+</body>
+</html>

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="hr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SmartShade - Moja soba</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header>
+    <div class="logo">SmartShade</div>
+    <nav>
+      <a href="/" class="active">Stanar</a>
+      <a href="/admin.html">Administrator</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="room-select">
+      <label for="roomSelect" style="color: var(--muted); margin-right: 0.5rem;">Soba:</label>
+      <select id="roomSelect"></select>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h2>Roletne</h2>
+        <div class="window-container">
+          <div class="window-frame">
+            <div class="window-light-overlay" id="lightOverlay"></div>
+            <div class="blind" id="blind"></div>
+          </div>
+          <div class="position-label">
+            <span id="positionText">50</span>%
+            <span> otvoreno</span>
+          </div>
+        </div>
+
+        <div style="text-align: center; margin-bottom: 1rem;">
+          <span class="mode-badge mode-auto" id="modeBadge">Automatski način rada aktivan</span>
+        </div>
+
+        <div class="controls">
+          <button class="btn btn-up" id="btnUp">Gore</button>
+          <button class="btn btn-stop" id="btnStop">Stop</button>
+          <button class="btn btn-down" id="btnDown">Dolje</button>
+        </div>
+
+        <div class="slider-container">
+          <label>Položaj rolete: <strong id="sliderValue">50</strong>%</label>
+          <input type="range" id="positionSlider" min="0" max="100" value="50">
+        </div>
+
+        <div class="btn-group">
+          <button class="btn-toggle active" data-mode="auto" id="btnAuto">Auto</button>
+          <button class="btn-toggle" data-mode="manual" id="btnManual">Ručno</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="card" style="margin-bottom: 1.5rem;">
+          <h2>Senzori</h2>
+          <div class="stats">
+            <div class="stat">
+              <div class="stat-value" id="tempValue">--</div>
+              <div class="stat-label">Temperatura °C</div>
+            </div>
+            <div class="stat">
+              <div class="stat-value" id="lightValue">--</div>
+              <div class="stat-label">Svjetlost (lux)</div>
+            </div>
+            <div class="stat">
+              <div class="stat-value" id="humidityValue">--</div>
+              <div class="stat-label">Vlaga %</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom: 1.5rem;">
+          <h2>Optimalni intenzitet svjetlosti</h2>
+          <div class="btn-group">
+            <button class="btn-toggle" data-pref="low">Low</button>
+            <button class="btn-toggle active" data-pref="medium">Medium</button>
+            <button class="btn-toggle" data-pref="high">High</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Raspored</h2>
+          <div class="schedule-row">
+            <label>Otvaranje:</label>
+            <input type="time" id="scheduleOpen" value="07:00">
+          </div>
+          <div class="schedule-row">
+            <label>Zatvaranje:</label>
+            <input type="time" id="scheduleClose" value="22:00">
+          </div>
+          <button class="btn btn-down" style="margin-top: 1rem; width: 100%;" id="btnSaveSchedule">Spremi raspored</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <div class="notifications" id="notifications"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>
