@@ -1,179 +1,106 @@
 # SmartShade
 
-Adaptivni IoT sustav za upravljanje pametnim roletama — FER projekt, Internet stvari.
-
-Sustav automatski prilagođava položaj roleta na temelju temperature, svjetlosti i vremenskih uvjeta. Korisnik može pratiti stanje i upravljati roletama preko web sučelja, uz podršku za automatski i ručni način rada.
-
-## Tim
-
-| Student | Uloga |
-|---------|-------|
-| Sandro Boka (voditelj) | IoT platforma |
-| Marko Šimić | Mobilna/web aplikacija |
-| Marko Subašić | IoT platforma |
-| Teo Putarek | Uređaji (ESP32) |
-| Vedran Kuzmanović | Uređaji (ESP32) |
+Sustav za pametno upravljanje roletama u hotelu. Centralna IoT platforma je **Home Assistant**.
 
 ## Arhitektura
 
 ```
-ESP32 (Soba 101)  ──┐
-                    ├── MQTT ──►  Web aplikacija (Node.js)
-Python simulator  ──┘              ├── API + automatizacija
-   (Sobe 102–111)                   ├── WebSocket (live podaci)
-                                    └── Frontend (HTML/CSS/JS)
+ESP32 (Soba 101)        ──┐
+                          ├──► MQTT broker ──► Home Assistant ──► Node.js (proxy) ──► Web aplikacija
+Python simulator (102-111) ──┘
 ```
 
-**Hijerarhija uređaja:** `Hotel_Zadar → Kat → Soba`
+- **ESP32** i **Python simulator** šalju podatke senzora i stanje roletne na MQTT broker.
+- **Home Assistant** prima MQTT poruke, kreira entitete i izvršava automatizacije (noćni mod, zaštita od oluje, itd.).
+- **Node.js backend** je proxy između web aplikacije i Home Assistant REST API-ja.
+- **Web aplikacija** prikazuje stanje iz HA i šalje naredbe prema HA.
 
-## Struktura projekta
+## Postavljanje
 
-```
-projekt/
-├── server/index.js              # Backend (Express, MQTT, Socket.io)
-├── public/
-│   ├── index.html               # Sučelje za stanara
-│   ├── admin.html               # Sučelje za administratora
-│   ├── css/style.css
-│   └── js/app.js, admin.js
-├── simulator/rooms_simulator.py   # Simulacija 10 virtualnih soba
-├── firmware/esp32_smartshade/   # Arduino kod za ESP32
-├── package.json
-└── README.md
-```
-
-## Preduvjeti
-
-- [Node.js](https://nodejs.org/) (v18+)
-- [Python 3](https://www.python.org/) (za simulator, opcionalno)
-- Arduino IDE + ESP32 board support (za firmware, opcionalno)
-
-## Pokretanje web aplikacije
+### 1. Instaliraj ovisnosti
 
 ```bash
-# Instalacija ovisnosti
 npm install
+```
 
-# Pokretanje servera
+### 2. Konfiguriraj `.env`
+
+```bash
+cp .env.example .env
+```
+
+Uredi `.env`:
+
+```env
+HA_BASE_URL=https://tvoj-cloudflare-tunnel.trycloudflare.com
+HA_TOKEN=tvoj_long_lived_access_token
+```
+
+Token se generira u HA: **Profil → Long-Lived Access Tokens → Create Token**
+
+### 3. Pokretanje
+
+```bash
 npm start
 ```
 
-Aplikacija je dostupna na:
+- Stanar:       http://localhost:3000
+- Administrator: http://localhost:3000/admin.html
 
-- **Stanar:** http://localhost:3000
-- **Administrator:** http://localhost:3000/admin.html
-
-### MQTT mod (spajanje na stvarni broker)
-
-Po defaultu aplikacija koristi ugrađenu simulaciju podataka. Za spajanje na MQTT broker:
+### 4. Simulator virtualnih soba (opcionalno)
 
 ```bash
-# Windows PowerShell
-$env:USE_MQTT="true"
-$env:MQTT_URL="mqtt://test.mosquitto.org"
-npm start
-```
-
-## Pokretanje simulatora (10 virtualnih soba)
-
-```bash
-pip install paho-mqtt
+pip install paho-mqtt python-dotenv
 python simulator/rooms_simulator.py
 ```
 
-Simulator šalje podatke za sobe 102–111 i u konzoli ispisuje reakcije na jak vjetar, npr.:
+Simulator:
+- Objavljuje MQTT Discovery konfiguracije → HA automatski kreira entitete za sobe 102-111
+- Šalje podatke senzora svakih 5 sekundi
+- Sluša naredbe za rolete koje dolaze iz HA (OPEN/CLOSE/STOP/set_position)
+- **Ne odlučuje o automatizacijama** — to radi HA
 
-```
-Soba 304: Roletne podignute zbog jakog vjetra (52 km/h)
-```
+## Home Assistant entiteti
 
-## ESP32 firmware
+Za svaku sobu postoje entiteti oblika (primjer za sobu 101, `device_id = smartshade_main`):
 
-Datoteka: `firmware/esp32_smartshade/esp32_smartshade.ino`
+| Entitet | Opis |
+|---------|------|
+| `cover.smartshade_main_shade` | Roletna |
+| `sensor.smartshade_main_temperature` | Temperatura |
+| `sensor.smartshade_main_light` | Osvjetljenje |
+| `sensor.smartshade_main_humidity` | Vlaga |
+| `sensor.smartshade_main_wind` | Brzina vjetra |
+| `binary_sensor.smartshade_main_rain` | Kiša |
+| `select.smartshade_main_mode` | Mod (auto/manual) |
 
-### Hardver
-
-| Komponenta | GPIO pin |
-|------------|----------|
-| DHT22 (temp/vlaga) | 4 |
-| LDR (svjetlost) | 34 |
-| Servo motor | 13 |
-| LED (status) | 2 |
-
-Servo: **0° = 0% (zatvoreno)**, **180° = 100% (otvoreno)**
-
-### WiFi Manager
-
-ESP32 se prvi put podiže kao hotspot **SmartShade-Setup**. Spoji se mobitelom, unesi SSID i lozinku WiFi mreže, nakon čega se ESP32 restartira i automatski spaja.
-
-### Potrebne Arduino biblioteke
-
-- WiFiManager (tzapu)
-- PubSubClient
-- DHT sensor library
-- ESP32Servo
-- ArduinoJson
-
-## Funkcionalnosti
-
-### Sučelje za stanara
-
-- Vizualna animacija rolete u postotcima (0–100%)
-- Prikaz temperature, svjetlosti i vlage
-- Tipke **Gore / Stop / Dolje** + slider za precizno podešavanje
-- Prebacivanje **Auto / Ručno** načina rada
-- Odabir optimalnog intenziteta svjetlosti: **Low / Medium / High**
-- Vremenski raspored (npr. otvaranje u 07:00)
-- **Smart Reminder** — obavijest kad je vani mrak, a rolete su dignute
-
-### Sučelje za administratora
-
-- Tablica svih uređaja s Online/Offline statusom
-- Upozorenje kad senzor prestane slati podatke
-- Grupno upravljanje (spusti/podigni sve, po katovima)
-- Grafovi procjene uštede energije
-- Upravljanje korisničkim dozvolama (tko vidi koje sobe)
-
-### Automatizacija
-
-| Uvjet | Akcija |
-|-------|--------|
-| Ljeto: toplo (>26°C) + jako sunce | Spusti rolete |
-| Zima: hladno (<20°C) + sunce vani | Digni rolete |
-| Noć (22:00–06:00) | Spusti rolete |
-| Jak vjetar (>40 km/h) | Podigni/uvuci rolete |
-| Raspored | Otvaranje/zatvaranje u zadano vrijeme |
+Za virtualne sobe: `device_id = smartshade_room_102`, `smartshade_room_103`, ...
 
 ## MQTT topici
 
 ```
-smartshade/Hotel_Zadar/Kat_{kat}/Soba_{id}/telemetry   # ESP32 → server
-smartshade/Hotel_Zadar/Kat_{kat}/Soba_{id}/command     # server → ESP32
+smartshade/{home_id}/{room_id}/{shade_id}/temperature
+smartshade/{home_id}/{room_id}/{shade_id}/humidity
+smartshade/{home_id}/{room_id}/{shade_id}/light
+smartshade/{home_id}/{room_id}/{shade_id}/weather/wind
+smartshade/{home_id}/{room_id}/{shade_id}/weather/rain/state
+smartshade/{home_id}/{room_id}/{shade_id}/cover/position
+smartshade/{home_id}/{room_id}/{shade_id}/cover/command      ← HA → uređaj
+smartshade/{home_id}/{room_id}/{shade_id}/cover/set_position ← HA → uređaj
+smartshade/{home_id}/{room_id}/{shade_id}/mode/state
+smartshade/{home_id}/{room_id}/{shade_id}/mode/set           ← HA → uređaj
+smartshade/{home_id}/{room_id}/{shade_id}/availability
 ```
 
-**Telemetry payload:**
-```json
-{
-  "temperature": 23.5,
-  "humidity": 48.2,
-  "light": 450,
-  "position": 50,
-  "mode": "auto"
-}
-```
+## Backend API
 
-## API (kratki pregled)
+Backend proksira sve pozive prema Home Assistant REST API-ju:
 
-| Metoda | Endpoint | Opis |
-|--------|----------|------|
-| GET | `/api/rooms?user=admin` | Popis soba |
-| POST | `/api/rooms/:id/command` | Naredba (up/down/stop/set_position/set_mode) |
-| POST | `/api/rooms/:id/schedule` | Postavi raspored |
-| POST | `/api/admin/group` | Grupna naredba (close_all/open_all) |
-| GET | `/api/admin/energy` | Procjena uštede energije |
-
-## IoT platforma
-
-Preporučena platforma: **Home Assistant** (prema projektnoj prijavi).
-
-Web aplikacija može raditi samostalno ili uz Home Assistant / ThingsBoard kao MQTT broker i dashboard.
+| Metoda | Endpoint | Proxira prema HA |
+|--------|----------|-----------------|
+| GET | `/api/rooms` | GET `/api/states/{entity_id}` (za svaku sobu) |
+| GET | `/api/rooms/:id` | GET `/api/states/{entity_id}` |
+| POST | `/api/rooms/:id/command` | POST `/api/services/cover/...` ili `/api/services/select/...` |
+| POST | `/api/rooms/:id/schedule` | Lokalno (raspored izvršava HA) |
+| POST | `/api/admin/group` | POST `/api/services/cover/open_cover` ili `close_cover` |
+| GET | `/api/admin/energy` | Izračunato iz HA stanja |

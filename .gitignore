@@ -4,11 +4,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Okruženje
-.env
-.env.local
-.env.*.local
-
 # Logovi
 logs/
 *.log

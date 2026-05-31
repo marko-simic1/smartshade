@@ -1,13 +1,19 @@
 const socket = io();
 let currentRoomId = '101';
 let rooms = [];
+let activeLightPreference = 'medium';
 
 async function fetchRooms() {
-  const res = await fetch('/api/rooms?user=stanar101');
-  rooms = await res.json();
-  updateRoomSelect();
-  const room = rooms.find((r) => r.id === currentRoomId) || rooms[0];
-  if (room) updateUI(room);
+  try {
+    const res = await fetch('/api/rooms?user=stanar101');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    rooms = await res.json();
+    updateRoomSelect();
+    const room = rooms.find((r) => r.id === currentRoomId) || rooms[0];
+    if (room) updateUI(room);
+  } catch (e) {
+    console.error('Greška pri dohvatu soba:', e);
+  }
 }
 
 function updateRoomSelect() {
@@ -28,9 +34,12 @@ function updateUI(room) {
   const overlay = document.getElementById('lightOverlay');
   overlay.style.opacity = room.position / 100;
 
-  document.getElementById('tempValue').textContent = room.temperature.toFixed(1);
-  document.getElementById('lightValue').textContent = Math.round(room.light);
-  document.getElementById('humidityValue').textContent = Math.round(room.humidity);
+  document.getElementById('tempValue').textContent =
+    room.temperature ? room.temperature.toFixed(1) : '--';
+  document.getElementById('lightValue').textContent =
+    room.light ? Math.round(room.light) : '--';
+  document.getElementById('humidityValue').textContent =
+    room.humidity ? Math.round(room.humidity) : '--';
 
   const badge = document.getElementById('modeBadge');
   if (room.mode === 'auto') {
@@ -44,20 +53,37 @@ function updateUI(room) {
   document.getElementById('btnAuto').classList.toggle('active', room.mode === 'auto');
   document.getElementById('btnManual').classList.toggle('active', room.mode === 'manual');
 
+  // Light preference is a global HA setting - reflect local selection
   document.querySelectorAll('[data-pref]').forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.pref === room.lightPreference);
+    btn.classList.toggle('active', btn.dataset.pref === activeLightPreference);
   });
 
-  document.getElementById('scheduleOpen').value = room.schedule.open;
-  document.getElementById('scheduleClose').value = room.schedule.close;
+  if (room.schedule) {
+    document.getElementById('scheduleOpen').value = room.schedule.open || '07:00';
+    document.getElementById('scheduleClose').value = room.schedule.close || '22:00';
+  }
+
+  // Show offline warning if room is not reachable in HA
+  const offlineBanner = document.getElementById('offlineBanner');
+  if (offlineBanner) {
+    offlineBanner.style.display = room.online ? 'none' : 'block';
+  }
 }
 
 async function sendCommand(action, value) {
-  await fetch(`/api/rooms/${currentRoomId}/command`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, value })
-  });
+  try {
+    const res = await fetch(`/api/rooms/${currentRoomId}/command`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, value })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      console.warn('Naredba odbijena:', err.error || res.status);
+    }
+  } catch (e) {
+    console.error('Greška pri slanju naredbe:', e);
+  }
 }
 
 function showNotification(data) {
@@ -65,7 +91,7 @@ function showNotification(data) {
   const div = document.createElement('div');
   div.className = 'notification';
   div.innerHTML = `
-    <p><strong>${data.roomName}</strong><br>${data.message}</p>
+    <p><strong>${data.roomName || 'Obavijest'}</strong><br>${data.message}</p>
     <div class="notification-actions">
       <button style="background: var(--accent); color: #fff;" data-action="yes">Da, spusti</button>
       <button style="background: var(--surface2); color: var(--text);" data-action="no">Ne sada</button>
@@ -103,19 +129,29 @@ document.getElementById('btnAuto').addEventListener('click', () => sendCommand('
 document.getElementById('btnManual').addEventListener('click', () => sendCommand('set_mode', 'manual'));
 
 document.querySelectorAll('[data-pref]').forEach((btn) => {
-  btn.addEventListener('click', () => sendCommand('set_light_preference', btn.dataset.pref));
+  btn.addEventListener('click', () => {
+    activeLightPreference = btn.dataset.pref;
+    document.querySelectorAll('[data-pref]').forEach((b) =>
+      b.classList.toggle('active', b.dataset.pref === activeLightPreference)
+    );
+    sendCommand('set_light_preference', btn.dataset.pref);
+  });
 });
 
 document.getElementById('btnSaveSchedule').addEventListener('click', async () => {
-  await fetch(`/api/rooms/${currentRoomId}/schedule`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      open: document.getElementById('scheduleOpen').value,
-      close: document.getElementById('scheduleClose').value
-    })
-  });
-  alert('Raspored spremljen!');
+  try {
+    await fetch(`/api/rooms/${currentRoomId}/schedule`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        open: document.getElementById('scheduleOpen').value,
+        close: document.getElementById('scheduleClose').value
+      })
+    });
+    alert('Raspored spremljen!');
+  } catch (e) {
+    alert('Greška pri spremanju rasporeda.');
+  }
 });
 
 socket.on('rooms-update', (updatedRooms) => {
