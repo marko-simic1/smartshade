@@ -28,8 +28,7 @@ function updateUI(room) {
 
   document.getElementById('blind').style.height = closedPercent + '%';
   document.getElementById('positionText').textContent = room.position;
-  document.getElementById('sliderValue').textContent = room.position;
-  document.getElementById('positionSlider').value = room.position;
+  document.getElementById('positionSlider').value = 100 - room.position;
 
   const overlay = document.getElementById('lightOverlay');
   overlay.style.opacity = room.position / 100;
@@ -41,17 +40,10 @@ function updateUI(room) {
   document.getElementById('humidityValue').textContent =
     room.humidity ? Math.round(room.humidity) : '--';
 
-  const badge = document.getElementById('modeBadge');
-  if (room.mode === 'auto') {
-    badge.textContent = 'Automatski način rada aktivan';
-    badge.className = 'mode-badge mode-auto';
-  } else {
-    badge.textContent = 'Ručni način rada aktivan';
-    badge.className = 'mode-badge mode-manual';
-  }
-
-  document.getElementById('btnAuto').classList.toggle('active', room.mode === 'auto');
-  document.getElementById('btnManual').classList.toggle('active', room.mode === 'manual');
+  document.getElementById('modeSwitch').checked = room.mode === 'auto';
+  document.getElementById('labelAuto').classList.toggle('active', room.mode === 'auto');
+  document.getElementById('labelManual').classList.toggle('active', room.mode === 'manual');
+  setControlsDimmed(room.mode === 'auto');
 
   // Light preference is a global HA setting - reflect local selection
   document.querySelectorAll('[data-pref]').forEach((btn) => {
@@ -68,6 +60,21 @@ function updateUI(room) {
   if (offlineBanner) {
     offlineBanner.style.display = room.online ? 'none' : 'block';
   }
+}
+
+function setControlsDimmed(dimmed) {
+  document.querySelector('.blind-control-row').classList.toggle('controls-dimmed', dimmed);
+}
+
+function switchToManualIfNeeded() {
+  const room = rooms.find(r => r.id === currentRoomId);
+  if (!room || room.mode !== 'auto') return;
+  room.mode = 'manual';
+  document.getElementById('modeSwitch').checked = false;
+  document.getElementById('labelAuto').classList.remove('active');
+  document.getElementById('labelManual').classList.add('active');
+  setControlsDimmed(false);
+  sendCommand('set_mode', 'manual');
 }
 
 async function sendCommand(action, value) {
@@ -114,19 +121,27 @@ document.getElementById('roomSelect').addEventListener('change', (e) => {
   if (room) updateUI(room);
 });
 
-document.getElementById('btnUp').addEventListener('click', () => sendCommand('up'));
-document.getElementById('btnDown').addEventListener('click', () => sendCommand('down'));
+document.getElementById('btnUp').addEventListener('click', () => {
+  switchToManualIfNeeded();
+  sendCommand('up');
+});
+document.getElementById('btnDown').addEventListener('click', () => {
+  switchToManualIfNeeded();
+  sendCommand('down');
+});
 document.getElementById('btnStop').addEventListener('click', () => sendCommand('stop'));
 
 document.getElementById('positionSlider').addEventListener('input', (e) => {
-  document.getElementById('sliderValue').textContent = e.target.value;
+  document.getElementById('positionText').textContent = 100 - e.target.value;
+  switchToManualIfNeeded();
 });
 document.getElementById('positionSlider').addEventListener('change', (e) => {
-  sendCommand('set_position', parseInt(e.target.value));
+  sendCommand('set_position', 100 - parseInt(e.target.value));
 });
 
-document.getElementById('btnAuto').addEventListener('click', () => sendCommand('set_mode', 'auto'));
-document.getElementById('btnManual').addEventListener('click', () => sendCommand('set_mode', 'manual'));
+document.getElementById('modeSwitch').addEventListener('change', (e) => {
+  sendCommand('set_mode', e.target.checked ? 'auto' : 'manual');
+});
 
 document.querySelectorAll('[data-pref]').forEach((btn) => {
   btn.addEventListener('click', () => {

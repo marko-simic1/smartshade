@@ -28,35 +28,48 @@
     <div class="grid">
       <div class="card">
         <h2>Roletne</h2>
-        <div class="window-container">
-          <div class="window-frame">
-            <div class="window-light-overlay" id="lightOverlay"></div>
-            <div class="blind" id="blind"></div>
+
+        <div class="blind-control-row">
+          <div class="window-container">
+            <div class="window-frame">
+              <div class="window-light-overlay" id="lightOverlay"></div>
+              <div class="blind" id="blind"></div>
+            </div>
           </div>
-          <div class="position-label">
-            <span id="positionText">50</span>%
-            <span> otvoreno</span>
+
+          <div class="blind-slider-wrapper">
+            <span class="slider-end-label">100%</span>
+            <input type="range" id="positionSlider" min="0" max="100" value="50">
+            <span class="slider-end-label">0%</span>
+          </div>
+
+          <div class="blind-buttons">
+            <button class="btn btn-up" id="btnUp" aria-label="Gore">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
+                <path d="m7.247 4.86-4.796 5.481c-.566.647-.106 1.659.753 1.659h9.592a1 1 0 0 0 .753-1.659l-4.796-5.48a1 1 0 0 0-1.506 0z"/>
+              </svg>
+            </button>
+            <button class="btn btn-stop" id="btnStop">Stop</button>
+            <button class="btn btn-down" id="btnDown" aria-label="Dolje">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
+                <path d="M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z"/>
+              </svg>
+            </button>
           </div>
         </div>
 
-        <div style="text-align: center; margin-bottom: 1rem;">
-          <span class="mode-badge mode-auto" id="modeBadge">Automatski način rada aktivan</span>
+        <div class="position-label">
+          <span id="positionText">50</span>%
+          <span> otvoreno</span>
         </div>
 
-        <div class="controls">
-          <button class="btn btn-up" id="btnUp">Gore</button>
-          <button class="btn btn-stop" id="btnStop">Stop</button>
-          <button class="btn btn-down" id="btnDown">Dolje</button>
-        </div>
-
-        <div class="slider-container">
-          <label>Položaj rolete: <strong id="sliderValue">50</strong>%</label>
-          <input type="range" id="positionSlider" min="0" max="100" value="50">
-        </div>
-
-        <div class="btn-group">
-          <button class="btn-toggle active" data-mode="auto" id="btnAuto">Auto</button>
-          <button class="btn-toggle" data-mode="manual" id="btnManual">Ručno</button>
+        <div class="mode-switch-wrapper">
+          <span class="mode-switch-label" id="labelManual">Ručno</span>
+          <label class="mode-switch">
+            <input type="checkbox" id="modeSwitch">
+            <span class="mode-switch-track"></span>
+          </label>
+          <span class="mode-switch-label" id="labelAuto">Auto</span>
         </div>
       </div>
 
@@ -80,11 +93,12 @@
         </div>
 
         <div class="card" style="margin-bottom: 1.5rem;">
-          <h2>Optimalni intenzitet svjetlosti</h2>
+          <h2>Intenzitet svjetlosti</h2>
+          <p style="font-size: 0.8rem; color: var(--muted); margin-bottom: 0.75rem;">Globalna postavka za cijelu zgradu</p>
           <div class="btn-group">
-            <button class="btn-toggle" data-pref="low">Low</button>
-            <button class="btn-toggle active" data-pref="medium">Medium</button>
-            <button class="btn-toggle" data-pref="high">High</button>
+            <button class="btn-toggle" data-pref="low">Nisko</button>
+            <button class="btn-toggle active" data-pref="medium">Srednje</button>
+            <button class="btn-toggle" data-pref="high">Visoko</button>
           </div>
         </div>
 

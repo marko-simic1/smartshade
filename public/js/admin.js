@@ -77,7 +77,9 @@ async function groupAction(action, floor) {
 document.getElementById('btnCloseAll').addEventListener('click', () => groupAction('close_all'));
 document.getElementById('btnOpenAll').addEventListener('click', () => groupAction('open_all'));
 document.getElementById('btnCloseFloor1').addEventListener('click', () => groupAction('close_all', 1));
+document.getElementById('btnOpenFloor1').addEventListener('click', () => groupAction('open_all', 1));
 document.getElementById('btnCloseFloor2').addEventListener('click', () => groupAction('close_all', 2));
+document.getElementById('btnOpenFloor2').addEventListener('click', () => groupAction('open_all', 2));
 
 socket.on('rooms-update', (rooms) => {
   renderTable(rooms);

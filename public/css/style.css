@@ -166,6 +166,74 @@ main {
   margin-top: 0.25rem;
 }
 
+/* ─── Blind control layout ─── */
+.blind-control-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.blind-control-row .window-container {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.blind-slider-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  height: 220px;
+}
+
+.blind-slider-wrapper input[type="range"] {
+  writing-mode: vertical-lr;
+  width: 8px;
+  height: 180px;
+  flex: 0 0 auto;
+}
+
+.slider-end-label {
+  font-size: 0.7rem;
+  color: var(--muted);
+  line-height: 1;
+}
+
+.blind-buttons {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 220px;
+}
+
+.blind-buttons .btn {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.blind-buttons #btnStop {
+  height: 40px;
+  font-size: 0.8rem;
+}
+
+.blind-control-row.controls-dimmed #btnUp,
+.blind-control-row.controls-dimmed #btnDown {
+  opacity: 0.3;
+  filter: grayscale(1);
+  transition: opacity 0.3s, filter 0.3s;
+}
+
+.blind-control-row.controls-dimmed .blind-slider-wrapper input[type="range"] {
+  opacity: 0.3;
+  transition: opacity 0.3s;
+}
+
 .controls {
   display: flex;
   gap: 0.75rem;
@@ -210,6 +278,68 @@ main {
   border-color: var(--accent);
   background: rgba(59, 130, 246, 0.15);
   color: var(--accent2);
+}
+
+.mode-switch-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.mode-switch-label {
+  font-size: 0.9rem;
+  color: var(--muted);
+  font-weight: 600;
+  transition: color 0.2s;
+}
+
+.mode-switch-label.active {
+  color: var(--text);
+}
+
+.mode-switch {
+  position: relative;
+  display: inline-block;
+  width: 52px;
+  height: 28px;
+}
+
+.mode-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.mode-switch-track {
+  position: absolute;
+  inset: 0;
+  background: rgba(239, 68, 68, 0.3);
+  border-radius: 14px;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+.mode-switch-track::before {
+  content: '';
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  left: 3px;
+  top: 3px;
+  background: var(--danger);
+  border-radius: 50%;
+  transition: transform 0.3s, background 0.3s;
+}
+
+.mode-switch input:checked + .mode-switch-track {
+  background: rgba(34, 197, 94, 0.3);
+}
+
+.mode-switch input:checked + .mode-switch-track::before {
+  transform: translateX(24px);
+  background: var(--success);
 }
 
 .slider-container {
