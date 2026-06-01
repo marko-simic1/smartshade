@@ -29,6 +29,7 @@ function updateUI(room) {
   document.getElementById('blind').style.height = closedPercent + '%';
   document.getElementById('positionText').textContent = room.position;
   document.getElementById('positionSlider').value = 100 - room.position;
+  document.getElementById('sliderDragLabel').textContent = room.position + '%';
 
   const overlay = document.getElementById('lightOverlay');
   overlay.style.opacity = room.position / 100;
@@ -129,10 +130,13 @@ document.getElementById('btnDown').addEventListener('click', () => {
   switchToManualIfNeeded();
   sendCommand('down');
 });
-document.getElementById('btnStop').addEventListener('click', () => sendCommand('stop'));
+document.getElementById('btnStop').addEventListener('click', () => {
+  switchToManualIfNeeded();
+  sendCommand('stop');
+});
 
 document.getElementById('positionSlider').addEventListener('input', (e) => {
-  document.getElementById('positionText').textContent = 100 - e.target.value;
+  document.getElementById('sliderDragLabel').textContent = (100 - e.target.value) + '%';
   switchToManualIfNeeded();
 });
 document.getElementById('positionSlider').addEventListener('change', (e) => {
@@ -140,7 +144,13 @@ document.getElementById('positionSlider').addEventListener('change', (e) => {
 });
 
 document.getElementById('modeSwitch').addEventListener('change', (e) => {
-  sendCommand('set_mode', e.target.checked ? 'auto' : 'manual');
+  const isAuto = e.target.checked;
+  const room = rooms.find(r => r.id === currentRoomId);
+  if (room) room.mode = isAuto ? 'auto' : 'manual';
+  document.getElementById('labelAuto').classList.toggle('active', isAuto);
+  document.getElementById('labelManual').classList.toggle('active', !isAuto);
+  setControlsDimmed(isAuto);
+  sendCommand('set_mode', isAuto ? 'auto' : 'manual');
 });
 
 document.querySelectorAll('[data-pref]').forEach((btn) => {
