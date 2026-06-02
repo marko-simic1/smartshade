@@ -10,7 +10,11 @@ async function fetchRooms() {
     rooms = await res.json();
     updateRoomSelect();
     const room = rooms.find((r) => r.id === currentRoomId) || rooms[0];
-    if (room) updateUI(room);
+    if (room) {
+      currentRoomId = room.id;
+      updateRoomSelect();
+      updateUI(room);
+    }
   } catch (e) {
     console.error('Greška pri dohvatu soba:', e);
   }
@@ -180,7 +184,7 @@ document.getElementById('btnSaveSchedule').addEventListener('click', async () =>
 });
 
 socket.on('rooms-update', (updatedRooms) => {
-  rooms = updatedRooms.filter((r) => ['101', '102'].includes(r.id));
+  rooms = updatedRooms;
   const room = rooms.find((r) => r.id === currentRoomId);
   if (room) updateUI(room);
 });

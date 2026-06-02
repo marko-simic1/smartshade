@@ -4,6 +4,20 @@ const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
 const WebSocket = require('ws');
+const { discoverPhysicalRooms } = require('./haDiscovery');
+const {
+  applyEntityState,
+  buildVirtualRoomConfigs,
+  getCachedRooms,
+  getConfiguredRoomIds,
+  getEntityIds,
+  getGroupShadeTargets,
+  getPhysicalRoomConfigs,
+  hasRoom,
+  initializeVirtualRooms,
+  replaceRoomConfig,
+  updateSchedule
+} = require('./roomStore');
 
 const PORT = process.env.PORT || 3000;
 const HA_BASE_URL = (process.env.HA_BASE_URL || 'http://localhost:8123').replace(/\/$/, '');
@@ -27,134 +41,10 @@ const users = {
   stanar102: { role: 'resident', rooms: ['102'] }
 };
 
-// ─── Konfiguracija soba ───────────────────────────────────────────────────────
+// ─── Sobe ─────────────────────────────────────────────────────────────────────
+// Fizički uređaji se otkrivaju iz Home Assistanta, virtualne sobe ostaju iz simulatora.
 
-const roomConfig = {};
-
-[
-  { id: '101', floor: 1, name: 'Soba 101', isPhysical: true,  deviceId: 'smartshade_main' }
-].concat(
-  Array.from({ length: 10 }, (_, i) => {
-    const id = String(102 + i);
-    return {
-      id,
-      floor: parseInt(id) <= 105 ? 1 : 2,
-      name: `Soba ${id}`,
-      isPhysical: false,
-      deviceId: `smartshade_room_${id}`
-    };
-  })
-).forEach(r => { roomConfig[r.id] = r; });
-
-// Raspored se čuva lokalno (izvršava HA automatizacija)
-const schedules = {};
-Object.keys(roomConfig).forEach(id => {
-  schedules[id] = { open: '07:00', close: '22:00' };
-});
-
-// ─── Entity ID helperi ────────────────────────────────────────────────────────
-
-function getEntityIds(roomId) {
-  const cfg = roomConfig[roomId];
-  if (!cfg) return null;
-  const d = cfg.deviceId;
-  return {
-    shade:       `cover.${d}_shade`,
-    temperature: `sensor.${d}_temperature`,
-    light:       `sensor.${d}_light`,
-    humidity:    `sensor.${d}_humidity`,
-    wind:        `sensor.${d}_wind`,
-    rain:        `binary_sensor.${d}_rain`,
-    mode:        `select.${d}_mode`
-  };
-}
-
-// Reverse mapa: entityId → { roomId, field }
-// Koristimo za instant cache update kad WebSocket donese event
-const entityToRoom = {};
-Object.keys(roomConfig).forEach(roomId => {
-  const e = getEntityIds(roomId);
-  entityToRoom[e.shade]       = { roomId, field: 'shade' };
-  entityToRoom[e.temperature] = { roomId, field: 'temperature' };
-  entityToRoom[e.light]       = { roomId, field: 'light' };
-  entityToRoom[e.humidity]    = { roomId, field: 'humidity' };
-  entityToRoom[e.wind]        = { roomId, field: 'wind' };
-  entityToRoom[e.rain]        = { roomId, field: 'rain' };
-  entityToRoom[e.mode]        = { roomId, field: 'mode' };
-});
-
-// ─── In-memory cache soba ─────────────────────────────────────────────────────
-
-// Inicijalni prazan cache — puni se REST load-om na startu
-const roomCache = {};
-Object.keys(roomConfig).forEach(id => {
-  const cfg = roomConfig[id];
-  roomCache[id] = {
-    id,
-    name: cfg.name,
-    floor: cfg.floor,
-    isPhysical: cfg.isPhysical,
-    online: false,
-    position: 0,
-    temperature: 0,
-    light: 0,
-    humidity: 0,
-    windSpeed: 0,
-    rain: false,
-    mode: 'manual',
-    lightPreference: 'medium',
-    schedule: schedules[id]
-  };
-});
-
-function getCachedRooms(roomIds = null) {
-  const ids = roomIds || Object.keys(roomCache);
-  return ids.map(id => ({ ...roomCache[id], schedule: schedules[id] })).filter(Boolean);
-}
-
-// Primijeni jedno stanje entiteta na cache
-function applyEntityState(entityId, newState) {
-  const mapping = entityToRoom[entityId];
-  if (!mapping) return false;
-
-  const { roomId, field } = mapping;
-  const room = roomCache[roomId];
-  if (!room) return false;
-
-  const validState = newState &&
-    newState.state !== 'unavailable' &&
-    newState.state !== 'unknown';
-
-  switch (field) {
-    case 'shade':
-      room.online   = validState;
-      room.position = (validState && newState.attributes)
-        ? (parseFloat(newState.attributes.current_position) ?? room.position)
-        : room.position;
-      break;
-    case 'temperature':
-      if (validState) room.temperature = parseFloat(newState.state) || 0;
-      break;
-    case 'light':
-      if (validState) room.light = parseFloat(newState.state) || 0;
-      break;
-    case 'humidity':
-      if (validState) room.humidity = parseFloat(newState.state) || 0;
-      break;
-    case 'wind':
-      if (validState) room.windSpeed = parseFloat(newState.state) || 0;
-      break;
-    case 'rain':
-      room.rain = validState ? newState.state === 'on' : false;
-      break;
-    case 'mode':
-      if (validState) room.mode = newState.state;
-      break;
-    default:
-      return false;
-  }
-  return true;
-}
+initializeVirtualRooms();
 
 // ─── HA REST helpers ──────────────────────────────────────────────────────────
 
@@ -190,14 +80,40 @@ async function haCallService(domain, service, data) {
   });
 }
 
+// ─── HA registry discovery za fizičke uređaje ────────────────────────────────
+
+async function refreshRoomConfigFromHa() {
+  const virtualRooms = buildVirtualRoomConfigs();
+  const currentPhysicalRooms = getPhysicalRoomConfigs();
+
+  try {
+    const physicalRooms = await discoverPhysicalRooms({
+      haWsUrl: HA_WS_URL,
+      haToken: HA_TOKEN
+    });
+    replaceRoomConfig([...physicalRooms, ...virtualRooms]);
+    console.log(`HA discovery: ${physicalRooms.length} fizičkih SmartShade uređaja, ${virtualRooms.length} virtualnih soba.`);
+
+    // Ažuriraj korisničke dozvole za fizičke sobe
+    // stanar101 dobiva pristup prvoj fizičkoj sobi koju HA discovery pronađe
+    if (physicalRooms.length > 0) {
+      users.stanar101.rooms = [physicalRooms[0].id];
+      console.log(`stanar101 → pristup sobi: ${physicalRooms[0].id} (${physicalRooms[0].name})`);
+    }
+  } catch (err) {
+    replaceRoomConfig([...currentPhysicalRooms, ...virtualRooms]);
+    console.warn('HA discovery nije uspio, zadržavam postojeću konfiguraciju:', err.message);
+  }
+}
+
 // Početni REST load — puni cache iz HA za sve sobe
 async function initialRestLoad() {
   console.log('Početni REST load stanja iz HA...');
   const loads = [];
 
-  for (const roomId of Object.keys(roomConfig)) {
+  for (const roomId of getConfiguredRoomIds()) {
     const e = getEntityIds(roomId);
-    for (const entityId of Object.values(e)) {
+    for (const entityId of Object.values(e || {})) {
       loads.push(
         haFetch(`/api/states/${entityId}`)
           .then(state => {
@@ -274,9 +190,6 @@ function connectHaWebSocket() {
     if (msg.type === 'event' && msg.event?.event_type === 'state_changed') {
       const { entity_id, new_state } = msg.event.data;
 
-      // Filtriraj samo SmartShade entitete
-      if (!entity_id.match(/^(cover|sensor|binary_sensor|select)\.smartshade_/)) return;
-
       const changed = applyEntityState(entity_id, new_state);
       if (changed) {
         // Pošalji update svim browserima odmah
@@ -300,7 +213,8 @@ function scheduleReconnect() {
   clearTimeout(wsReconnectTimer);
   wsReconnectTimer = setTimeout(async () => {
     console.log('HA WebSocket: pokušavam reconnect...');
-    // REST refresh da cache bude sinkroniziran
+    // Registry + REST refresh da cache bude sinkroniziran
+    await refreshRoomConfigFromHa();
     await initialRestLoad();
     io.emit('rooms-update', getCachedRooms());
     connectHaWebSocket();
@@ -314,19 +228,23 @@ app.get('/api/rooms', (req, res) => {
   const u = users[user];
   if (!u) return res.status(403).json({ error: 'Nepoznat korisnik' });
 
-  const ids = u.rooms === 'all' ? null : u.rooms;
-  res.json(getCachedRooms(ids));
+  if (u.rooms === 'all') {
+    return res.json(getCachedRooms());
+  }
+
+  // Filtriraj samo sobe kojima korisnik ima pristup i koje postoje u konfiguraciji
+  const ids = u.rooms.filter(id => hasRoom(id));
+  res.json(getCachedRooms(ids.length > 0 ? ids : []));
 });
 
 app.get('/api/rooms/:id', (req, res) => {
-  if (!roomConfig[req.params.id]) return res.status(404).json({ error: 'Soba nije pronađena' });
-  const room = roomCache[req.params.id];
-  res.json({ ...room, schedule: schedules[req.params.id] });
+  if (!hasRoom(req.params.id)) return res.status(404).json({ error: 'Soba nije pronađena' });
+  res.json(getCachedRooms([req.params.id])[0]);
 });
 
 // Naredbe se i dalje šalju REST-om prema HA
 app.post('/api/rooms/:id/command', async (req, res) => {
-  if (!roomConfig[req.params.id]) return res.status(404).json({ error: 'Soba nije pronađena' });
+  if (!hasRoom(req.params.id)) return res.status(404).json({ error: 'Soba nije pronađena' });
 
   const e = getEntityIds(req.params.id);
   const { action, value } = req.body;
@@ -334,18 +252,23 @@ app.post('/api/rooms/:id/command', async (req, res) => {
   try {
     switch (action) {
       case 'up':
+        if (!e.shade) return res.status(400).json({ error: 'Soba nema cover entitet' });
         await haCallService('cover', 'open_cover', { entity_id: e.shade });
         break;
       case 'down':
+        if (!e.shade) return res.status(400).json({ error: 'Soba nema cover entitet' });
         await haCallService('cover', 'close_cover', { entity_id: e.shade });
         break;
       case 'stop':
+        if (!e.shade) return res.status(400).json({ error: 'Soba nema cover entitet' });
         await haCallService('cover', 'stop_cover', { entity_id: e.shade });
         break;
       case 'set_position':
+        if (!e.shade) return res.status(400).json({ error: 'Soba nema cover entitet' });
         await haCallService('cover', 'set_cover_position', { entity_id: e.shade, position: value });
         break;
       case 'set_mode':
+        if (!e.mode) return res.status(400).json({ error: 'Soba nema mode entitet' });
         await haCallService('select', 'select_option', { entity_id: e.mode, option: value });
         break;
       case 'set_light_preference': {
@@ -362,7 +285,7 @@ app.post('/api/rooms/:id/command', async (req, res) => {
 
     // Odgovori odmah s trenutnim cache stanjem
     // WebSocket će donijeti ažurirano stanje čim HA procesira naredbu
-    res.json({ ...roomCache[req.params.id], schedule: schedules[req.params.id] });
+    res.json(getCachedRooms([req.params.id])[0]);
   } catch (err) {
     console.error('Command greška:', err);
     res.status(502).json({ error: 'Greška pri slanju naredbe u Home Assistant' });
@@ -370,16 +293,13 @@ app.post('/api/rooms/:id/command', async (req, res) => {
 });
 
 app.post('/api/rooms/:id/schedule', (req, res) => {
-  if (!roomConfig[req.params.id]) return res.status(404).json({ error: 'Soba nije pronađena' });
-  schedules[req.params.id] = { ...schedules[req.params.id], ...req.body };
-  res.json({ id: req.params.id, schedule: schedules[req.params.id] });
+  if (!hasRoom(req.params.id)) return res.status(404).json({ error: 'Soba nije pronađena' });
+  res.json({ id: req.params.id, schedule: updateSchedule(req.params.id, req.body) });
 });
 
 app.post('/api/admin/group', async (req, res) => {
   const { action, floor } = req.body;
-  const targets = Object.entries(roomConfig)
-    .filter(([, cfg]) => !floor || cfg.floor === floor)
-    .map(([id]) => getEntityIds(id).shade);
+  const targets = getGroupShadeTargets(floor);
 
   const haAction = action === 'close_all' ? 'close_cover' : 'open_cover';
   try {
@@ -420,9 +340,12 @@ server.listen(PORT, async () => {
     return;
   }
 
-  // 1. Učitaj početno stanje iz HA REST-a
+  // 1. Otkrij fizičke SmartShade uređaje iz HA registryja
+  await refreshRoomConfigFromHa();
+
+  // 2. Učitaj početno stanje iz HA REST-a
   await initialRestLoad();
 
-  // 2. Otvori WebSocket prema HA za live evente
+  // 3. Otvori WebSocket prema HA za live evente
   connectHaWebSocket();
 });
