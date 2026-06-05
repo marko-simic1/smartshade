@@ -37,3 +37,6 @@ firmware/**/build/
 *.tmp
 *.temp
 iot_docx_extract.txt
+
+# Lokalna konfiguracija (tokeni!) — ne commitati
+.env

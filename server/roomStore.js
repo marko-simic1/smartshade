@@ -1,7 +1,17 @@
+// Store soba svjestan više HA instanci.
+// Svaka soba nosi haId (kojem HA instanceu pripada). Globalni id sobe je
+// prefiksiran haId-om (npr. "ha1__kitchen") da ne dolazi do kolizija između instanci.
+// Reverse mapa entiteta je ključana s `${haId}|${entityId}` jer dva HA-a mogu
+// imati identične entity_id-eve (npr. oba cover.smartshade_main_shade).
+
 const roomConfig = {};
 const schedules = {};
 const roomCache = {};
 const entityToRoom = {};
+
+function entityKey(haId, entityId) {
+  return `${haId}|${entityId}`;
+}
 
 function entitiesFromDeviceId(deviceId) {
   return {
@@ -15,14 +25,17 @@ function entitiesFromDeviceId(deviceId) {
   };
 }
 
-function buildVirtualRoomConfigs() {
+// 10 virtualnih soba (simulator) za jednu HA instancu
+function buildVirtualRoomConfigs(haId, haLabel) {
   return Array.from({ length: 10 }, (_, i) => {
-    const id = String(102 + i);
-    const deviceId = `smartshade_room_${id}`;
+    const localId = String(102 + i);
+    const deviceId = `smartshade_room_${localId}`;
     return {
-      id,
-      floor: parseInt(id) <= 105 ? 1 : 2,
-      name: `Soba ${id}`,
+      id: `${haId}__${localId}`,
+      haId,
+      haLabel,
+      floor: parseInt(localId) <= 105 ? 1 : 2,
+      name: `Soba ${localId}`,
       isPhysical: false,
       deviceId,
       areaId: null,
@@ -34,6 +47,8 @@ function buildVirtualRoomConfigs() {
 function createEmptyRoom(id, cfg, previous = {}) {
   return {
     id,
+    haId: cfg.haId,
+    haLabel: cfg.haLabel,
     name: cfg.name,
     floor: cfg.floor,
     isPhysical: cfg.isPhysical,
@@ -54,7 +69,7 @@ function createEmptyRoom(id, cfg, previous = {}) {
 
 function replaceRoomConfig(configs) {
   Object.keys(roomConfig).forEach(id => delete roomConfig[id]);
-  Object.keys(entityToRoom).forEach(entityId => delete entityToRoom[entityId]);
+  Object.keys(entityToRoom).forEach(key => delete entityToRoom[key]);
 
   configs.forEach(cfg => {
     roomConfig[cfg.id] = cfg;
@@ -62,17 +77,13 @@ function replaceRoomConfig(configs) {
     roomCache[cfg.id] = createEmptyRoom(cfg.id, cfg, roomCache[cfg.id]);
 
     Object.entries(cfg.entities).forEach(([field, entityId]) => {
-      if (entityId) entityToRoom[entityId] = { roomId: cfg.id, field };
+      if (entityId) entityToRoom[entityKey(cfg.haId, entityId)] = { roomId: cfg.id, field };
     });
   });
 
   Object.keys(roomCache).forEach(id => {
     if (!roomConfig[id]) delete roomCache[id];
   });
-}
-
-function initializeVirtualRooms() {
-  replaceRoomConfig(buildVirtualRoomConfigs());
 }
 
 function hasRoom(roomId) {
@@ -83,8 +94,17 @@ function getEntityIds(roomId) {
   return roomConfig[roomId]?.entities || null;
 }
 
+function getRoomHa(roomId) {
+  return roomConfig[roomId]?.haId || null;
+}
+
 function getConfiguredRoomIds() {
   return Object.keys(roomConfig);
+}
+
+// Room id-evi koji pripadaju jednoj HA instanci (za REST load po instanci)
+function getConfiguredRoomIdsByHa(haId) {
+  return Object.values(roomConfig).filter(cfg => cfg.haId === haId).map(cfg => cfg.id);
 }
 
 function getPhysicalRoomConfigs() {
@@ -93,7 +113,7 @@ function getPhysicalRoomConfigs() {
 
 function getCachedRooms(roomIds = null) {
   const ids = roomIds || Object.keys(roomCache);
-  return ids.map(id => ({ ...roomCache[id], schedule: schedules[id] })).filter(Boolean);
+  return ids.map(id => roomCache[id] ? { ...roomCache[id], schedule: schedules[id] } : null).filter(Boolean);
 }
 
 function updateSchedule(roomId, patch) {
@@ -101,26 +121,26 @@ function updateSchedule(roomId, patch) {
   return schedules[roomId];
 }
 
+// Mete za grupno upravljanje — vraća { haId, entityId } jer naredba mora ići u pravi HA
 function getGroupShadeTargets(floor) {
-  return Object.entries(roomConfig)
-    .filter(([, cfg]) => !floor || cfg.floor === floor)
-    .map(([id]) => getEntityIds(id).shade)
-    .filter(Boolean);
+  return Object.values(roomConfig)
+    .filter(cfg => !floor || cfg.floor === floor)
+    .map(cfg => ({ haId: cfg.haId, entityId: cfg.entities.shade }))
+    .filter(t => t.entityId);
 }
 
-function applyEntityState(entityId, newState) {
-  const mapping = entityToRoom[entityId];
+function applyEntityState(haId, entityId, newState) {
+  const mapping = entityToRoom[entityKey(haId, entityId)];
   if (!mapping) return false;
 
-  const { roomId, field } = mapping;
-  const room = roomCache[roomId];
+  const room = roomCache[mapping.roomId];
   if (!room) return false;
 
   const validState = newState &&
     newState.state !== 'unavailable' &&
     newState.state !== 'unknown';
 
-  switch (field) {
+  switch (mapping.field) {
     case 'shade':
       room.online = validState;
       if (validState && newState.attributes) {
@@ -157,11 +177,12 @@ module.exports = {
   buildVirtualRoomConfigs,
   getCachedRooms,
   getConfiguredRoomIds,
+  getConfiguredRoomIdsByHa,
   getEntityIds,
   getGroupShadeTargets,
   getPhysicalRoomConfigs,
+  getRoomHa,
   hasRoom,
-  initializeVirtualRooms,
   replaceRoomConfig,
   updateSchedule
 };

@@ -11,7 +11,8 @@
     <div class="logo">SmartShade</div>
     <nav>
       <a href="/">Stanar</a>
-      <a href="/admin.html" class="active">Administrator</a>
+      <a href="/admin.html" id="navAdmin" class="active">Administrator</a>
+      <span class="nav-userbox" id="userBox"></span>
     </nav>
   </header>
 
@@ -33,6 +34,7 @@
             <tr>
               <th>Status</th>
               <th>Soba</th>
+              <th>Zgrada</th>
               <th>Kat</th>
               <th>Temperatura</th>
               <th>Svjetlost</th>
@@ -58,7 +60,7 @@
             <tr>
               <th>Korisnik</th>
               <th>Uloga</th>
-              <th>Pristup sobama</th>
+              <th>Pristup (zgrada)</th>
             </tr>
           </thead>
           <tbody id="usersTable"></tbody>
@@ -70,6 +72,7 @@
   <div class="notifications" id="notifications"></div>
 
   <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/auth.js"></script>
   <script src="/js/admin.js"></script>
 </body>
 </html>

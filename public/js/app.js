@@ -5,7 +5,7 @@ let activeLightPreference = 'medium';
 
 async function fetchRooms() {
   try {
-    const res = await fetch('/api/rooms?user=stanar101');
+    const res = await fetch('/api/rooms');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     rooms = await res.json();
     updateRoomSelect();

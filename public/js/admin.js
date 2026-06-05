@@ -1,7 +1,7 @@
 const socket = io();
 
 async function fetchDevices() {
-  const res = await fetch('/api/rooms?user=admin');
+  const res = await fetch('/api/rooms');
   const rooms = await res.json();
   renderTable(rooms);
 }
@@ -32,7 +32,7 @@ async function fetchUsers() {
     <tr>
       <td>${name}</td>
       <td>${u.role === 'admin' ? 'Administrator' : 'Stanar'}</td>
-      <td>${u.rooms === 'all' ? 'Sve sobe' : u.rooms.join(', ')}</td>
+      <td>${u.access}</td>
     </tr>
   `).join('');
 }
@@ -46,6 +46,7 @@ function renderTable(rooms) {
         ${r.online ? 'Online' : 'Offline'}
       </td>
       <td>${r.name}</td>
+      <td>${r.haLabel || r.haId || '—'}</td>
       <td>Kat ${r.floor}</td>
       <td>${r.temperature.toFixed(1)} °C</td>
       <td>${Math.round(r.light)} lux</td>

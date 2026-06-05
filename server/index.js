@@ -3,277 +3,187 @@ const express = require('express');
 const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
-const WebSocket = require('ws');
-const { discoverPhysicalRooms } = require('./haDiscovery');
+const { createHaManager } = require('./haManager');
 const {
-  applyEntityState,
-  buildVirtualRoomConfigs,
   getCachedRooms,
-  getConfiguredRoomIds,
   getEntityIds,
   getGroupShadeTargets,
-  getPhysicalRoomConfigs,
   hasRoom,
-  initializeVirtualRooms,
-  replaceRoomConfig,
   updateSchedule
 } = require('./roomStore');
 
 const PORT = process.env.PORT || 3000;
-const HA_BASE_URL = (process.env.HA_BASE_URL || 'http://localhost:8123').replace(/\/$/, '');
-const HA_TOKEN = process.env.HA_TOKEN || '';
-
-// ws:// ili wss:// ovisno o http/https
-const HA_WS_URL = HA_BASE_URL.replace(/^http/, 'ws') + '/api/websocket';
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '../public')));
+
+// ─── Zaštita stranica ─────────────────────────────────────────────────────────
+// Login stranica + statički resursi (css/js) su javni; index/admin traže prijavu.
+
+function pageGuard(role) {
+  return (req, res, next) => {
+    const u = userFromCookie(req.headers.cookie);
+    if (!u) return res.redirect('/login.html');
+    if (role === 'admin' && u.role !== 'admin') return res.redirect('/');
+    next();
+  };
+}
+
+app.get(['/', '/index.html'], pageGuard(), (req, res) =>
+  res.sendFile(path.join(__dirname, '../public/index.html')));
+app.get('/admin.html', pageGuard('admin'), (req, res) =>
+  res.sendFile(path.join(__dirname, '../public/admin.html')));
+
+// index:false da static ne servira index.html mimo guarda iznad
+app.use(express.static(path.join(__dirname, '../public'), { index: false }));
+
+// ─── Prijava / odjava ─────────────────────────────────────────────────────────
+
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body || {};
+  const u = users[username];
+  if (!u || u.password !== password) {
+    return res.status(401).json({ error: 'Pogrešno korisničko ime ili lozinka' });
+  }
+  const token = crypto.randomBytes(24).toString('hex');
+  sessions[token] = username;
+  res.setHeader('Set-Cookie', `sid=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=86400`);
+  res.json({ username, role: u.role });
+});
+
+app.post('/api/logout', (req, res) => {
+  const token = parseCookies(req.headers.cookie).sid;
+  if (token) delete sessions[token];
+  res.setHeader('Set-Cookie', 'sid=; HttpOnly; Path=/; Max-Age=0');
+  res.json({ success: true });
+});
+
+app.get('/api/me', requireAuth, (req, res) => {
+  res.json({ username: req.user.name, role: req.user.role, rooms: req.user.rooms });
+});
 
 // ─── Korisnici ────────────────────────────────────────────────────────────────
 
+// Stanar je vezan na svoj HA instance (ha). Admin vidi sve instance (cijela zgrada).
 const users = {
-  admin:     { role: 'admin',    rooms: 'all' },
-  stanar101: { role: 'resident', rooms: ['101'] },
-  stanar102: { role: 'resident', rooms: ['102'] }
+  admin:    { password: 'admin123', role: 'admin' },
+  stanar1:  { password: 'soba1',    role: 'resident', ha: 'ha1' },
+  stanar2:  { password: 'soba2',    role: 'resident', ha: 'ha2' }
 };
 
-// ─── Sobe ─────────────────────────────────────────────────────────────────────
-// Fizički uređaji se otkrivaju iz Home Assistanta, virtualne sobe ostaju iz simulatora.
+// ─── Sesije (in-memory, cookie-based) ─────────────────────────────────────────
 
-initializeVirtualRooms();
+const crypto = require('crypto');
+const sessions = {}; // token → username
 
-// ─── HA REST helpers ──────────────────────────────────────────────────────────
-
-async function haFetch(urlPath, options = {}) {
-  if (!HA_TOKEN) {
-    console.warn('HA_TOKEN nije postavljen - provjeri .env datoteku');
-    return null;
-  }
-  try {
-    const res = await fetch(`${HA_BASE_URL}${urlPath}`, {
-      ...options,
-      headers: {
-        Authorization: `Bearer ${HA_TOKEN}`,
-        'Content-Type': 'application/json',
-        ...(options.headers || {})
-      }
-    });
-    if (!res.ok) {
-      console.warn(`HA REST ${urlPath} => HTTP ${res.status}`);
-      return null;
-    }
-    return res.json();
-  } catch (e) {
-    console.error(`HA REST greška (${urlPath}):`, e.message);
-    return null;
-  }
-}
-
-async function haCallService(domain, service, data) {
-  return haFetch(`/api/services/${domain}/${service}`, {
-    method: 'POST',
-    body: JSON.stringify(data)
+function parseCookies(cookieHeader) {
+  const out = {};
+  (cookieHeader || '').split(';').forEach(part => {
+    const idx = part.indexOf('=');
+    if (idx === -1) return;
+    out[part.slice(0, idx).trim()] = decodeURIComponent(part.slice(idx + 1).trim());
   });
+  return out;
 }
 
-// ─── HA registry discovery za fizičke uređaje ────────────────────────────────
+// Korisnik iz cookieja (radi i za HTTP requestove i za Socket.IO handshake)
+function userFromCookie(cookieHeader) {
+  const token = parseCookies(cookieHeader).sid;
+  const username = token && sessions[token];
+  if (!username || !users[username]) return null;
+  return { name: username, ...users[username] };
+}
 
-async function refreshRoomConfigFromHa() {
-  const virtualRooms = buildVirtualRoomConfigs();
-  const currentPhysicalRooms = getPhysicalRoomConfigs();
+function requireAuth(req, res, next) {
+  const u = userFromCookie(req.headers.cookie);
+  if (!u) return res.status(401).json({ error: 'Niste prijavljeni' });
+  req.user = u;
+  next();
+}
 
-  try {
-    const physicalRooms = await discoverPhysicalRooms({
-      haWsUrl: HA_WS_URL,
-      haToken: HA_TOKEN
-    });
-    replaceRoomConfig([...physicalRooms, ...virtualRooms]);
-    console.log(`HA discovery: ${physicalRooms.length} fizičkih SmartShade uređaja, ${virtualRooms.length} virtualnih soba.`);
+function requireAdmin(req, res, next) {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Samo administrator' });
+  next();
+}
 
-    // Ažuriraj korisničke dozvole za fizičke sobe
-    // stanar101 dobiva pristup prvoj fizičkoj sobi koju HA discovery pronađe
-    if (physicalRooms.length > 0) {
-      users.stanar101.rooms = [physicalRooms[0].id];
-      console.log(`stanar101 → pristup sobi: ${physicalRooms[0].id} (${physicalRooms[0].name})`);
-    }
-  } catch (err) {
-    replaceRoomConfig([...currentPhysicalRooms, ...virtualRooms]);
-    console.warn('HA discovery nije uspio, zadržavam postojeću konfiguraciju:', err.message);
+// Sobe koje korisnik smije vidjeti: admin sve, stanar samo svoj HA instance
+function roomsForUser(user) {
+  if (!user) return [];
+  if (user.role === 'admin') return getCachedRooms();
+  return getCachedRooms().filter(r => r.haId === user.ha);
+}
+
+function canAccessRoom(user, roomId) {
+  if (!user || !hasRoom(roomId)) return false;
+  if (user.role === 'admin') return true;
+  const room = getCachedRooms([roomId])[0];
+  return room && room.haId === user.ha;
+}
+
+// Pošalji svakom spojenom browseru samo sobe na koje ima pravo
+function broadcastRooms() {
+  for (const [, socket] of io.of('/').sockets) {
+    socket.emit('rooms-update', roomsForUser(userFromCookie(socket.handshake.headers.cookie)));
   }
 }
 
-// Početni REST load — puni cache iz HA za sve sobe
-async function initialRestLoad() {
-  console.log('Početni REST load stanja iz HA...');
-  const loads = [];
+// ─── HA instance manager ──────────────────────────────────────────────────────
+// Svaki stanar ima svoj HA instance. Manager za svaku instancu drži zasebnu
+// discovery + REST load + WebSocket vezu i rutira naredbe u pravi HA.
+// onRoomsChanged se okida kad bilo koja instanca javi promjenu stanja.
 
-  for (const roomId of getConfiguredRoomIds()) {
-    const e = getEntityIds(roomId);
-    for (const entityId of Object.values(e || {})) {
-      loads.push(
-        haFetch(`/api/states/${entityId}`)
-          .then(state => {
-            if (state) applyEntityState(entityId, state);
-          })
-          .catch(() => {})
-      );
-    }
-  }
-
-  await Promise.all(loads);
-  console.log('REST load završen.');
-}
-
-// ─── HA WebSocket klijent ─────────────────────────────────────────────────────
-
-let haWs = null;
-let wsReconnectTimer = null;
-let wsSubId = 1;
-
-function connectHaWebSocket() {
-  if (!HA_TOKEN) {
-    console.warn('HA_TOKEN nije postavljen — WebSocket nije pokrenut.');
-    return;
-  }
-
-  console.log(`Spajam HA WebSocket: ${HA_WS_URL}`);
-  haWs = new WebSocket(HA_WS_URL);
-
-  haWs.on('open', () => {
-    console.log('HA WebSocket: spojen');
-    clearTimeout(wsReconnectTimer);
-  });
-
-  haWs.on('message', (raw) => {
-    let msg;
-    try { msg = JSON.parse(raw); } catch { return; }
-
-    // 1. HA traži autentikaciju
-    if (msg.type === 'auth_required') {
-      haWs.send(JSON.stringify({ type: 'auth', access_token: HA_TOKEN }));
-      return;
-    }
-
-    // 2. Autentikacija uspješna — pretplati se na state_changed
-    if (msg.type === 'auth_ok') {
-      console.log(`HA WebSocket: autentificiran (HA ${msg.ha_version})`);
-      haWs.send(JSON.stringify({
-        id: wsSubId,
-        type: 'subscribe_events',
-        event_type: 'state_changed'
-      }));
-      return;
-    }
-
-    // 3. Auth nije prošla
-    if (msg.type === 'auth_invalid') {
-      console.error('HA WebSocket: neispravan token! Provjeri HA_TOKEN u .env');
-      haWs.close();
-      return;
-    }
-
-    // 4. Potvrda pretplate
-    if (msg.type === 'result' && msg.id === wsSubId) {
-      if (msg.success) {
-        console.log('HA WebSocket: pretplaćen na state_changed evente');
-      } else {
-        console.error('HA WebSocket: pretplata nije uspjela', msg.error);
-      }
-      return;
-    }
-
-    // 5. Dolazi event promjene stanja
-    if (msg.type === 'event' && msg.event?.event_type === 'state_changed') {
-      const { entity_id, new_state } = msg.event.data;
-
-      const changed = applyEntityState(entity_id, new_state);
-      if (changed) {
-        // Pošalji update svim browserima odmah
-        io.emit('rooms-update', getCachedRooms());
-      }
-    }
-  });
-
-  haWs.on('close', (code, reason) => {
-    console.warn(`HA WebSocket: veza prekinuta (${code}). Reconnect za 5s...`);
-    scheduleReconnect();
-  });
-
-  haWs.on('error', (err) => {
-    console.error('HA WebSocket greška:', err.message);
-    // 'close' event će se okidati automatski, reconnect tamo
-  });
-}
-
-function scheduleReconnect() {
-  clearTimeout(wsReconnectTimer);
-  wsReconnectTimer = setTimeout(async () => {
-    console.log('HA WebSocket: pokušavam reconnect...');
-    // Registry + REST refresh da cache bude sinkroniziran
-    await refreshRoomConfigFromHa();
-    await initialRestLoad();
-    io.emit('rooms-update', getCachedRooms());
-    connectHaWebSocket();
-  }, 5000);
-}
+const haManager = createHaManager(process.env, { onRoomsChanged: broadcastRooms });
 
 // ─── REST API ─────────────────────────────────────────────────────────────────
 
-app.get('/api/rooms', (req, res) => {
-  const user = req.query.user || 'admin';
-  const u = users[user];
-  if (!u) return res.status(403).json({ error: 'Nepoznat korisnik' });
-
-  if (u.rooms === 'all') {
-    return res.json(getCachedRooms());
-  }
-
-  // Filtriraj samo sobe kojima korisnik ima pristup i koje postoje u konfiguraciji
-  const ids = u.rooms.filter(id => hasRoom(id));
-  res.json(getCachedRooms(ids.length > 0 ? ids : []));
+app.get('/api/rooms', requireAuth, (req, res) => {
+  res.json(roomsForUser(req.user));
 });
 
-app.get('/api/rooms/:id', (req, res) => {
+app.get('/api/rooms/:id', requireAuth, (req, res) => {
   if (!hasRoom(req.params.id)) return res.status(404).json({ error: 'Soba nije pronađena' });
+  if (!canAccessRoom(req.user, req.params.id)) return res.status(403).json({ error: 'Nemate pristup ovoj sobi' });
   res.json(getCachedRooms([req.params.id])[0]);
 });
 
 // Naredbe se i dalje šalju REST-om prema HA
-app.post('/api/rooms/:id/command', async (req, res) => {
+app.post('/api/rooms/:id/command', requireAuth, async (req, res) => {
   if (!hasRoom(req.params.id)) return res.status(404).json({ error: 'Soba nije pronađena' });
+  if (!canAccessRoom(req.user, req.params.id)) return res.status(403).json({ error: 'Nemate pristup ovoj sobi' });
 
-  const e = getEntityIds(req.params.id);
+  const roomId = req.params.id;
+  const e = getEntityIds(roomId);
   const { action, value } = req.body;
+  const call = (domain, service, data) => haManager.callServiceForRoom(roomId, domain, service, data);
 
   try {
     switch (action) {
       case 'up':
         if (!e.shade) return res.status(400).json({ error: 'Soba nema cover entitet' });
-        await haCallService('cover', 'open_cover', { entity_id: e.shade });
+        await call('cover', 'open_cover', { entity_id: e.shade });
         break;
       case 'down':
         if (!e.shade) return res.status(400).json({ error: 'Soba nema cover entitet' });
-        await haCallService('cover', 'close_cover', { entity_id: e.shade });
+        await call('cover', 'close_cover', { entity_id: e.shade });
         break;
       case 'stop':
         if (!e.shade) return res.status(400).json({ error: 'Soba nema cover entitet' });
-        await haCallService('cover', 'stop_cover', { entity_id: e.shade });
+        await call('cover', 'stop_cover', { entity_id: e.shade });
         break;
       case 'set_position':
         if (!e.shade) return res.status(400).json({ error: 'Soba nema cover entitet' });
-        await haCallService('cover', 'set_cover_position', { entity_id: e.shade, position: value });
+        await call('cover', 'set_cover_position', { entity_id: e.shade, position: value });
         break;
       case 'set_mode':
         if (!e.mode) return res.status(400).json({ error: 'Soba nema mode entitet' });
-        await haCallService('select', 'select_option', { entity_id: e.mode, option: value });
+        await call('select', 'select_option', { entity_id: e.mode, option: value });
         break;
       case 'set_light_preference': {
         const presetMap = { low: 'Low', medium: 'Medium', high: 'High' };
-        await haCallService('input_select', 'select_option', {
+        await call('input_select', 'select_option', {
           entity_id: 'input_select.light_preset',
           option: presetMap[value] || value
         });
@@ -292,25 +202,26 @@ app.post('/api/rooms/:id/command', async (req, res) => {
   }
 });
 
-app.post('/api/rooms/:id/schedule', (req, res) => {
+app.post('/api/rooms/:id/schedule', requireAuth, (req, res) => {
   if (!hasRoom(req.params.id)) return res.status(404).json({ error: 'Soba nije pronađena' });
+  if (!canAccessRoom(req.user, req.params.id)) return res.status(403).json({ error: 'Nemate pristup ovoj sobi' });
   res.json({ id: req.params.id, schedule: updateSchedule(req.params.id, req.body) });
 });
 
-app.post('/api/admin/group', async (req, res) => {
+app.post('/api/admin/group', requireAuth, requireAdmin, async (req, res) => {
   const { action, floor } = req.body;
-  const targets = getGroupShadeTargets(floor);
+  const targets = getGroupShadeTargets(floor); // [{ haId, entityId }] — svaki ide u svoj HA
 
   const haAction = action === 'close_all' ? 'close_cover' : 'open_cover';
   try {
-    await Promise.all(targets.map(entityId => haCallService('cover', haAction, { entity_id: entityId })));
+    await haManager.callServiceForTargets(targets, 'cover', haAction);
     res.json({ success: true, affected: targets.length });
   } catch (e) {
     res.status(502).json({ error: 'Greška pri grupnom upravljanju' });
   }
 });
 
-app.get('/api/admin/energy', (req, res) => {
+app.get('/api/admin/energy', requireAuth, requireAdmin, (req, res) => {
   const data = getCachedRooms().map(r => {
     const closedPercent = 100 - r.position;
     const savings = Math.round(closedPercent * 0.15 + (r.mode === 'auto' ? 10 : 0));
@@ -320,32 +231,35 @@ app.get('/api/admin/energy', (req, res) => {
   res.json({ rooms: data, totalSavings: total });
 });
 
-app.get('/api/users', (req, res) => res.json(users));
+app.get('/api/users', requireAuth, requireAdmin, (req, res) => {
+  const instances = Object.fromEntries(haManager.getInstances().map(i => [i.id, i.label]));
+  // Ne otkrivaj lozinke; prikaži kojem HA instanceu (zgradi) korisnik pripada
+  const safe = Object.fromEntries(
+    Object.entries(users).map(([name, u]) => [name, {
+      role: u.role,
+      access: u.role === 'admin' ? 'Sve zgrade' : (instances[u.ha] || u.ha || '—')
+    }])
+  );
+  res.json(safe);
+});
+
+app.get('/api/instances', requireAuth, requireAdmin, (req, res) => {
+  res.json(haManager.getInstances());
+});
 
 // ─── Socket.io ────────────────────────────────────────────────────────────────
 
 io.on('connection', (socket) => {
-  // Novi browser klijent dobiva trenutni cache odmah
-  socket.emit('rooms-update', getCachedRooms());
+  // Novi browser klijent dobiva odmah samo sobe na koje ima pravo
+  socket.emit('rooms-update', roomsForUser(userFromCookie(socket.handshake.headers.cookie)));
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 
 server.listen(PORT, async () => {
   console.log(`SmartShade web app: http://localhost:${PORT}`);
-  console.log(`Home Assistant:     ${HA_BASE_URL}`);
 
-  if (!HA_TOKEN) {
-    console.warn('UPOZORENJE: HA_TOKEN nije postavljen! Provjeri .env datoteku.');
-    return;
-  }
-
-  // 1. Otkrij fizičke SmartShade uređaje iz HA registryja
-  await refreshRoomConfigFromHa();
-
-  // 2. Učitaj početno stanje iz HA REST-a
-  await initialRestLoad();
-
-  // 3. Otvori WebSocket prema HA za live evente
-  connectHaWebSocket();
+  // Manager: za svaku HA instancu discovery → REST load → WebSocket.
+  // Bez tokena samo prikazuje virtualne sobe (app i dalje radi za demo logina).
+  await haManager.start();
 });

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="hr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SmartShade - Prijava</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="login-wrap">
+    <form class="login-card" id="loginForm">
+      <div class="logo" style="text-align:center; margin-bottom:0.5rem;">SmartShade</div>
+      <p style="text-align:center; color:var(--muted); margin-bottom:1.5rem;">Prijava u sustav</p>
+
+      <label class="login-label" for="username">Korisničko ime</label>
+      <input class="login-input" type="text" id="username" autocomplete="username" required>
+
+      <label class="login-label" for="password">Lozinka</label>
+      <input class="login-input" type="password" id="password" autocomplete="current-password" required>
+
+      <div class="login-error" id="loginError"></div>
+
+      <button class="btn btn-down" type="submit" style="width:100%; margin-top:0.5rem;">Prijava</button>
+    </form>
+  </div>
+
+  <script>
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById('loginError');
+      errorEl.textContent = '';
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: document.getElementById('username').value,
+            password: document.getElementById('password').value
+          })
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          errorEl.textContent = err.error || 'Prijava nije uspjela';
+          return;
+        }
+        const me = await res.json();
+        window.location = me.role === 'admin' ? '/admin.html' : '/';
+      } catch (err) {
+        errorEl.textContent = 'Greška pri spajanju na server';
+      }
+    });
+  </script>
+</body>
+</html>

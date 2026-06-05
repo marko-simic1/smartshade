@@ -549,3 +549,67 @@ select {
   text-align: center;
   margin-bottom: 1rem;
 }
+
+/* ─── Auth: header userbox ─────────────────────────────────────────────────── */
+
+.nav-userbox {
+  margin-left: 1.5rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.nav-user {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+/* ─── Auth: login stranica ─────────────────────────────────────────────────── */
+
+.login-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.login-card {
+  background: var(--surface);
+  border: 1px solid var(--surface2);
+  border-radius: 12px;
+  padding: 2rem;
+  width: 100%;
+  max-width: 360px;
+}
+
+.login-label {
+  display: block;
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-bottom: 0.4rem;
+}
+
+.login-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--surface2);
+  border: 1px solid var(--surface2);
+  border-radius: 8px;
+  padding: 0.7rem 0.9rem;
+  color: var(--text);
+  font-size: 1rem;
+  margin-bottom: 1.1rem;
+}
+
+.login-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.login-error {
+  color: var(--danger);
+  font-size: 0.85rem;
+  min-height: 1.2rem;
+  margin-bottom: 0.5rem;
+}
