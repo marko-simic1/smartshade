@@ -3,6 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script>
+    // Ukloni zaostali service worker (npr. druge aplikacije na localhost:3000)
+    // da ne presreće /api i Socket.IO pozive.
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function (regs) {
+        var had = regs.length > 0;
+        regs.forEach(function (r) { r.unregister(); });
+        if (window.caches) caches.keys().then(function (ks) { ks.forEach(function (k) { caches.delete(k); }); });
+        if (had && navigator.serviceWorker.controller) window.location.reload();
+      });
+    }
+  </script>
   <title>SmartShade - Prijava</title>
   <link rel="stylesheet" href="/css/style.css">
 </head>
