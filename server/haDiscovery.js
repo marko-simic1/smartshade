@@ -42,8 +42,89 @@ function fieldForEntity(entity) {
   return null;
 }
 
+function objectIdFromEntityId(entityId) {
+  return String(entityId || '').split('.')[1] || '';
+}
+
+function helperExists(helperIds, entityId) {
+  return helperIds.has(entityId) ? entityId : null;
+}
+
+function entityAreaId(entity, devicesById) {
+  return entity.area_id || devicesById[entity.device_id]?.area_id || null;
+}
+
+function helperText(entity) {
+  const entityId = entity.entity_id || '';
+  const objectId = objectIdFromEntityId(entityId);
+  return `${objectId} ${entity.name || ''} ${entity.name_by_user || ''} ${entity.original_name || ''}`.toLowerCase();
+}
+
+function helperRole(entity) {
+  const text = helperText(entity);
+  if (
+    (text.includes('morning') && text.includes('open')) ||
+    text.includes('open_time') ||
+    text.includes('jutarnj') ||
+    text.includes('otvaranj')
+  ) return 'open';
+
+  if (
+    (text.includes('night') && (text.includes('closing') || text.includes('close'))) ||
+    text.includes('closing_time') ||
+    text.includes('close_time') ||
+    text.includes('noc') ||
+    text.includes('noć') ||
+    text.includes('zatvaranj')
+  ) return 'close';
+
+  return null;
+}
+
+function scheduleHelpersForArea(areaId, helperEntities) {
+  if (!areaId) return {};
+
+  const helpers = helperEntities
+    .filter(entity => entity.areaId === areaId)
+    .sort((a, b) => a.entityId.localeCompare(b.entityId));
+
+  const scheduleOpen = helpers.find(entity => entity.role === 'open')?.entityId;
+  const scheduleClose = helpers.find(entity => entity.role === 'close')?.entityId;
+
+  if (!scheduleOpen || !scheduleClose) return {};
+  return { scheduleOpen, scheduleClose };
+}
+
+function scheduleHelpersForRoom(entitiesForRoom, helperIds, areaId, helperEntities) {
+  const shadeObjectId = objectIdFromEntityId(entitiesForRoom.shade).replace(/_shade$/, '');
+  const conventional = {
+    scheduleOpen: helperExists(helperIds, `input_datetime.${shadeObjectId}_morning_open_time`) ||
+      helperExists(helperIds, `input_datetime.${shadeObjectId}_open_time`),
+    scheduleClose: helperExists(helperIds, `input_datetime.${shadeObjectId}_night_closing_time`) ||
+      helperExists(helperIds, `input_datetime.${shadeObjectId}_close_time`)
+  };
+
+  if (conventional.scheduleOpen && conventional.scheduleClose) return conventional;
+
+  return scheduleHelpersForArea(areaId, helperEntities);
+}
+
 function buildPhysicalRoomConfigs(areas, devices, entities) {
   const areasById = Object.fromEntries((areas || []).map(area => [area.area_id, area]));
+  const devicesById = Object.fromEntries((devices || []).map(device => [device.id, device]));
+  const helperIds = new Set(
+    (entities || [])
+      .map(entity => entity.entity_id)
+      .filter(entityId => String(entityId || '').startsWith('input_datetime.'))
+  );
+  const helperEntities = (entities || [])
+    .filter(entity => String(entity.entity_id || '').startsWith('input_datetime.'))
+    .map(entity => ({
+      entityId: entity.entity_id,
+      areaId: entityAreaId(entity, devicesById),
+      role: helperRole(entity)
+    }))
+    .filter(entity => entity.role);
   const entitiesByDevice = {};
 
   (entities || []).forEach(entity => {
@@ -84,7 +165,10 @@ function buildPhysicalRoomConfigs(areas, devices, entities) {
         isPhysical: true,
         deviceId: device.id,
         areaId: device.area_id || null,
-        entities: entitiesForRoom
+        entities: {
+          ...entitiesForRoom,
+          ...scheduleHelpersForRoom(entitiesForRoom, helperIds, device.area_id, helperEntities)
+        }
       };
     })
     .filter(Boolean)

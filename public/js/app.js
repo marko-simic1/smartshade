@@ -169,7 +169,7 @@ document.querySelectorAll('[data-pref]').forEach((btn) => {
 
 document.getElementById('btnSaveSchedule').addEventListener('click', async () => {
   try {
-    await fetch(`/api/rooms/${currentRoomId}/schedule`, {
+    const res = await fetch(`/api/rooms/${currentRoomId}/schedule`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -177,9 +177,13 @@ document.getElementById('btnSaveSchedule').addEventListener('click', async () =>
         close: document.getElementById('scheduleClose').value
       })
     });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Greška pri spremanju rasporeda.');
+    }
     alert('Raspored spremljen!');
   } catch (e) {
-    alert('Greška pri spremanju rasporeda.');
+    alert(e.message || 'Greška pri spremanju rasporeda.');
   }
 });
 

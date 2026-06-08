@@ -73,6 +73,8 @@ Za svaku sobu postoje entiteti oblika (primjer za sobu 101, `device_id = smartsh
 | `sensor.smartshade_main_wind` | Brzina vjetra |
 | `binary_sensor.smartshade_main_rain` | Kiša |
 | `select.smartshade_main_mode` | Mod (auto/manual) |
+| `input_datetime.smartshade_main_morning_open_time` | Jutarnje otvaranje |
+| `input_datetime.smartshade_main_night_closing_time` | Večernji/noćni raspored |
 
 Za virtualne sobe: `device_id = smartshade_room_102`, `smartshade_room_103`, ...
 
@@ -101,6 +103,6 @@ Backend proksira sve pozive prema Home Assistant REST API-ju:
 | GET | `/api/rooms` | GET `/api/states/{entity_id}` (za svaku sobu) |
 | GET | `/api/rooms/:id` | GET `/api/states/{entity_id}` |
 | POST | `/api/rooms/:id/command` | POST `/api/services/cover/...` ili `/api/services/select/...` |
-| POST | `/api/rooms/:id/schedule` | Lokalno (raspored izvršava HA) |
+| POST | `/api/rooms/:id/schedule` | POST `/api/services/input_datetime/set_datetime` |
 | POST | `/api/admin/group` | POST `/api/services/cover/open_cover` ili `close_cover` |
 | GET | `/api/admin/energy` | Izračunato iz HA stanja |

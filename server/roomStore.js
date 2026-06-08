@@ -21,7 +21,9 @@ function entitiesFromDeviceId(deviceId) {
     humidity:    `sensor.${deviceId}_humidity`,
     wind:        `sensor.${deviceId}_wind`,
     rain:        `binary_sensor.${deviceId}_rain`,
-    mode:        `select.${deviceId}_mode`
+    mode:        `select.${deviceId}_mode`,
+    scheduleOpen:  `input_datetime.${deviceId}_morning_open_time`,
+    scheduleClose: `input_datetime.${deviceId}_night_closing_time`
   };
 }
 
@@ -92,6 +94,15 @@ function hasRoom(roomId) {
 
 function getEntityIds(roomId) {
   return roomConfig[roomId]?.entities || null;
+}
+
+function getScheduleEntityIds(roomId) {
+  const entities = getEntityIds(roomId);
+  if (!entities?.scheduleOpen || !entities?.scheduleClose) return null;
+  return {
+    open: entities.scheduleOpen,
+    close: entities.scheduleClose
+  };
 }
 
 function getRoomHa(roomId) {
@@ -166,6 +177,14 @@ function applyEntityState(haId, entityId, newState) {
     case 'mode':
       if (validState) room.mode = newState.state;
       break;
+    case 'scheduleOpen':
+      if (validState) room.schedule = { ...schedules[mapping.roomId], open: newState.state.slice(0, 5) };
+      schedules[mapping.roomId] = room.schedule;
+      break;
+    case 'scheduleClose':
+      if (validState) room.schedule = { ...schedules[mapping.roomId], close: newState.state.slice(0, 5) };
+      schedules[mapping.roomId] = room.schedule;
+      break;
     default:
       return false;
   }
@@ -181,6 +200,7 @@ module.exports = {
   getEntityIds,
   getGroupShadeTargets,
   getPhysicalRoomConfigs,
+  getScheduleEntityIds,
   getRoomHa,
   hasRoom,
   replaceRoomConfig,

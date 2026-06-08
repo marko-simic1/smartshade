@@ -8,6 +8,7 @@ const {
   getCachedRooms,
   getEntityIds,
   getGroupShadeTargets,
+  getScheduleEntityIds,
   hasRoom,
   updateSchedule
 } = require('./roomStore');
@@ -123,6 +124,19 @@ function canAccessRoom(user, roomId) {
   return room && room.haId === user.ha;
 }
 
+function toHaTime(value) {
+  const text = String(value || '').trim();
+  const match = text.match(/^(\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) return null;
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const seconds = match[3] == null ? 0 : Number(match[3]);
+  if (hours > 23 || minutes > 59 || seconds > 59) return null;
+
+  return `${match[1]}:${match[2]}:${String(seconds).padStart(2, '0')}`;
+}
+
 // Pošalji svakom spojenom browseru samo sobe na koje ima pravo
 function broadcastRooms() {
   for (const [, socket] of io.of('/').sockets) {
@@ -202,10 +216,52 @@ app.post('/api/rooms/:id/command', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/rooms/:id/schedule', requireAuth, (req, res) => {
+app.post('/api/rooms/:id/schedule', requireAuth, async (req, res) => {
   if (!hasRoom(req.params.id)) return res.status(404).json({ error: 'Soba nije pronađena' });
   if (!canAccessRoom(req.user, req.params.id)) return res.status(403).json({ error: 'Nemate pristup ovoj sobi' });
-  res.json({ id: req.params.id, schedule: updateSchedule(req.params.id, req.body) });
+
+  const open = toHaTime(req.body?.open);
+  const close = toHaTime(req.body?.close);
+  if (!open || !close) return res.status(400).json({ error: 'Neispravan format rasporeda' });
+
+  const roomId = req.params.id;
+  const schedule = updateSchedule(roomId, {
+    open: open.slice(0, 5),
+    close: close.slice(0, 5)
+  });
+  const scheduleEntities = getScheduleEntityIds(roomId);
+
+  if (!scheduleEntities) {
+    const e = getEntityIds(roomId);
+    const shadeObjectId = String(e?.shade || '').split('.')[1]?.replace(/_shade$/, '');
+    return res.status(400).json({
+      error: shadeObjectId
+        ? `Soba nema input_datetime entitete za raspored. Dodijeli morning/open i night/closing input_datetime helpere u istu HA sobu ili ih nazovi input_datetime.${shadeObjectId}_morning_open_time i input_datetime.${shadeObjectId}_night_closing_time`
+        : 'Soba nema input_datetime entitete za raspored',
+      schedule
+    });
+  }
+
+  try {
+    const results = await Promise.all([
+      haManager.callServiceForRoom(roomId, 'input_datetime', 'set_datetime', {
+        entity_id: scheduleEntities.open,
+        time: open
+      }),
+      haManager.callServiceForRoom(roomId, 'input_datetime', 'set_datetime', {
+        entity_id: scheduleEntities.close,
+        time: close
+      })
+    ]);
+    if (results.some(result => !result)) {
+      return res.status(502).json({ error: 'Home Assistant nije prihvatio raspored', schedule });
+    }
+
+    res.json({ id: roomId, schedule, scheduleEntities, haSynced: true });
+  } catch (err) {
+    console.error('Schedule sync greška:', err);
+    res.status(502).json({ error: 'Greška pri slanju rasporeda u Home Assistant', schedule });
+  }
 });
 
 app.post('/api/admin/group', requireAuth, requireAdmin, async (req, res) => {
