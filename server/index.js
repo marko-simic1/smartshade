@@ -196,10 +196,18 @@ app.post('/api/rooms/:id/command', requireAuth, async (req, res) => {
         await call('select', 'select_option', { entity_id: e.mode, option: value });
         break;
       case 'set_light_preference': {
-        const presetMap = { low: 'Low', medium: 'Medium', high: 'High' };
+        const presetMap = { low: 'Low', medium: 'Medium', high: 'High', custom: 'Custom' };
         await call('input_select', 'select_option', {
           entity_id: 'input_select.light_preset',
           option: presetMap[value] || value
+        });
+        break;
+      }
+      case 'set_light_threshold': {
+        const v = Math.max(200, Math.min(1200, parseInt(value, 10) || 0));
+        await call('input_number', 'set_value', {
+          entity_id: 'input_number.custom_light_threshold',
+          value: v
         });
         break;
       }

@@ -10,7 +10,8 @@ const {
   getConfiguredRoomIdsByHa,
   getEntityIds,
   getRoomHa,
-  replaceRoomConfig
+  replaceRoomConfig,
+  GLOBAL_ENTITY_IDS
 } = require('./roomStore');
 
 const RECONNECT_MS = 5000;
@@ -139,15 +140,19 @@ function createHaManager(env, { onRoomsChanged }) {
   async function restLoadInstance(instance) {
     if (!instance.token) return;
     const loads = [];
+    const entityIds = [];
     for (const roomId of getConfiguredRoomIdsByHa(instance.id)) {
-      const e = getEntityIds(roomId);
-      for (const entityId of Object.values(e || {})) {
-        loads.push(
-          haFetch(instance, `/api/states/${entityId}`)
-            .then(state => { if (state) applyEntityState(instance.id, entityId, state); })
-            .catch(() => {})
-        );
-      }
+      entityIds.push(...Object.values(getEntityIds(roomId) || {}));
+    }
+    // Globalne postavke intenziteta svjetla (zajedničke za instancu)
+    entityIds.push(...GLOBAL_ENTITY_IDS);
+
+    for (const entityId of entityIds) {
+      loads.push(
+        haFetch(instance, `/api/states/${entityId}`)
+          .then(state => { if (state) applyEntityState(instance.id, entityId, state); })
+          .catch(() => {})
+      );
     }
     await Promise.all(loads);
   }

@@ -9,6 +9,16 @@ const schedules = {};
 const roomCache = {};
 const entityToRoom = {};
 
+// Globalne postavke intenziteta svjetla po HA instanci (zajedničke za cijelu zgradu)
+const instanceSettings = {}; // haId -> { lightPreset, lightThreshold }
+const LIGHT_PRESET_ENTITY = 'input_select.light_preset';
+const LIGHT_THRESHOLD_ENTITY = 'input_number.custom_light_threshold';
+const GLOBAL_ENTITY_IDS = [LIGHT_PRESET_ENTITY, LIGHT_THRESHOLD_ENTITY];
+
+function ensureSettings(haId) {
+  return (instanceSettings[haId] ||= { lightPreset: 'Medium', lightThreshold: 700 });
+}
+
 function entityKey(haId, entityId) {
   return `${haId}|${entityId}`;
 }
@@ -64,7 +74,6 @@ function createEmptyRoom(id, cfg, previous = {}) {
     windSpeed: previous.windSpeed || 0,
     rain: previous.rain || false,
     mode: previous.mode || 'manual',
-    lightPreference: 'medium',
     schedule: schedules[id]
   };
 }
@@ -76,6 +85,7 @@ function replaceRoomConfig(configs) {
   configs.forEach(cfg => {
     roomConfig[cfg.id] = cfg;
     schedules[cfg.id] ||= { open: '07:00', close: '22:00' };
+    ensureSettings(cfg.haId);
     roomCache[cfg.id] = createEmptyRoom(cfg.id, cfg, roomCache[cfg.id]);
 
     Object.entries(cfg.entities).forEach(([field, entityId]) => {
@@ -124,7 +134,17 @@ function getPhysicalRoomConfigs() {
 
 function getCachedRooms(roomIds = null) {
   const ids = roomIds || Object.keys(roomCache);
-  return ids.map(id => roomCache[id] ? { ...roomCache[id], schedule: schedules[id] } : null).filter(Boolean);
+  return ids.map(id => {
+    const r = roomCache[id];
+    if (!r) return null;
+    const s = instanceSettings[r.haId] || {};
+    return {
+      ...r,
+      schedule: schedules[id],
+      lightPreset: s.lightPreset || 'Medium',
+      lightThreshold: s.lightThreshold || 700
+    };
+  }).filter(Boolean);
 }
 
 function updateSchedule(roomId, patch) {
@@ -141,6 +161,20 @@ function getGroupShadeTargets(floor) {
 }
 
 function applyEntityState(haId, entityId, newState) {
+  const validGlobal = newState &&
+    newState.state !== 'unavailable' && newState.state !== 'unknown';
+
+  // Globalne postavke intenziteta svjetla (po HA instanci)
+  if (entityId === LIGHT_PRESET_ENTITY) {
+    if (validGlobal) { ensureSettings(haId).lightPreset = newState.state; return true; }
+    return false;
+  }
+  if (entityId === LIGHT_THRESHOLD_ENTITY) {
+    const v = parseFloat(newState && newState.state);
+    if (validGlobal && Number.isFinite(v)) { ensureSettings(haId).lightThreshold = v; return true; }
+    return false;
+  }
+
   const mapping = entityToRoom[entityKey(haId, entityId)];
   if (!mapping) return false;
 
@@ -204,5 +238,8 @@ module.exports = {
   getRoomHa,
   hasRoom,
   replaceRoomConfig,
-  updateSchedule
+  updateSchedule,
+  GLOBAL_ENTITY_IDS,
+  LIGHT_PRESET_ENTITY,
+  LIGHT_THRESHOLD_ENTITY
 };

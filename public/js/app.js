@@ -2,6 +2,7 @@ const socket = io();
 let currentRoomId = '101';
 let rooms = [];
 let activeLightPreference = 'medium';
+let thresholdDragging = false;
 
 async function fetchRooms() {
   try {
@@ -44,16 +45,28 @@ function updateUI(room) {
     room.light ? Math.round(room.light) : '--';
   document.getElementById('humidityValue').textContent =
     room.humidity ? Math.round(room.humidity) : '--';
+  document.getElementById('windValue').textContent =
+    (room.windSpeed || room.windSpeed === 0) ? Math.round(room.windSpeed) : '--';
+  document.getElementById('rainValue').textContent = room.rain ? 'Da' : 'Ne';
 
   document.getElementById('modeSwitch').checked = room.mode === 'auto';
   document.getElementById('labelAuto').classList.toggle('active', room.mode === 'auto');
   document.getElementById('labelManual').classList.toggle('active', room.mode === 'manual');
   setControlsDimmed(room.mode === 'auto');
 
-  // Light preference is a global HA setting - reflect local selection
+  // Intenzitet svjetlosti je globalna HA postavka (po zgradi) - prikaži stanje iz HA
+  const preset = (room.lightPreset || 'Medium').toLowerCase();
+  activeLightPreference = preset;
   document.querySelectorAll('[data-pref]').forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.pref === activeLightPreference);
+    btn.classList.toggle('active', btn.dataset.pref === preset);
   });
+  const customWrap = document.getElementById('customThresholdWrap');
+  const threshold = room.lightThreshold || 700;
+  if (customWrap) customWrap.style.display = preset === 'custom' ? 'block' : 'none';
+  if (!thresholdDragging) {
+    document.getElementById('thresholdSlider').value = threshold;
+    document.getElementById('thresholdValue').textContent = threshold;
+  }
 
   if (room.schedule) {
     document.getElementById('scheduleOpen').value = room.schedule.open || '07:00';
@@ -163,8 +176,20 @@ document.querySelectorAll('[data-pref]').forEach((btn) => {
     document.querySelectorAll('[data-pref]').forEach((b) =>
       b.classList.toggle('active', b.dataset.pref === activeLightPreference)
     );
+    const isCustom = btn.dataset.pref === 'custom';
+    document.getElementById('customThresholdWrap').style.display = isCustom ? 'block' : 'none';
     sendCommand('set_light_preference', btn.dataset.pref);
   });
+});
+
+// Custom prag svjetla (200-1200 lx)
+document.getElementById('thresholdSlider').addEventListener('input', (e) => {
+  thresholdDragging = true;
+  document.getElementById('thresholdValue').textContent = e.target.value;
+});
+document.getElementById('thresholdSlider').addEventListener('change', (e) => {
+  thresholdDragging = false;
+  sendCommand('set_light_threshold', parseInt(e.target.value, 10));
 });
 
 document.getElementById('btnSaveSchedule').addEventListener('click', async () => {

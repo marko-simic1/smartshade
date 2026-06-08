@@ -101,6 +101,14 @@
               <div class="stat-value" id="humidityValue">--</div>
               <div class="stat-label">Vlaga %</div>
             </div>
+            <div class="stat">
+              <div class="stat-value" id="windValue">--</div>
+              <div class="stat-label">Vjetar (km/h)</div>
+            </div>
+            <div class="stat">
+              <div class="stat-value" id="rainValue">--</div>
+              <div class="stat-label">Kiša</div>
+            </div>
           </div>
         </div>
 
@@ -111,6 +119,14 @@
             <button class="btn-toggle" data-pref="low">Nisko</button>
             <button class="btn-toggle active" data-pref="medium">Srednje</button>
             <button class="btn-toggle" data-pref="high">Visoko</button>
+            <button class="btn-toggle" data-pref="custom">Custom</button>
+          </div>
+          <div id="customThresholdWrap" style="display:none; margin-top:1rem;">
+            <div style="display:flex; justify-content:space-between; font-size:0.85rem; color:var(--muted);">
+              <span>Prag svjetla</span>
+              <span><span id="thresholdValue">700</span> lx</span>
+            </div>
+            <input type="range" id="thresholdSlider" min="200" max="1200" step="50" value="700" style="width:100%; margin-top:0.4rem;">
           </div>
         </div>
 
