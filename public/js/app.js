@@ -54,17 +54,26 @@ function updateUI(room) {
   document.getElementById('labelManual').classList.toggle('active', room.mode === 'manual');
   setControlsDimmed(room.mode === 'auto');
 
-  // Intenzitet svjetlosti je globalna HA postavka (po zgradi) - prikaži stanje iz HA
+  // Intenzitet svjetlosti je HA postavka vezana uz odabranu sobu.
   const preset = (room.lightPreset || 'Medium').toLowerCase();
   activeLightPreference = preset;
   document.querySelectorAll('[data-pref]').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.pref === preset);
+    btn.disabled = !room.lightPresetAvailable;
   });
   const customWrap = document.getElementById('customThresholdWrap');
-  const threshold = room.lightThreshold || 700;
+  const threshold = room.lightThreshold ?? 700;
+  const thresholdSlider = document.getElementById('thresholdSlider');
+  const thresholdMin = room.lightThresholdMin ?? 200;
+  const thresholdMax = room.lightThresholdMax ?? 1200;
+  const thresholdStep = room.lightThresholdStep ?? 50;
   if (customWrap) customWrap.style.display = preset === 'custom' ? 'block' : 'none';
   if (!thresholdDragging) {
-    document.getElementById('thresholdSlider').value = threshold;
+    thresholdSlider.min = thresholdMin;
+    thresholdSlider.max = thresholdMax;
+    thresholdSlider.step = thresholdStep;
+    thresholdSlider.disabled = !room.lightThresholdAvailable;
+    thresholdSlider.value = threshold;
     document.getElementById('thresholdValue').textContent = threshold;
   }
 
@@ -189,7 +198,7 @@ document.getElementById('thresholdSlider').addEventListener('input', (e) => {
 });
 document.getElementById('thresholdSlider').addEventListener('change', (e) => {
   thresholdDragging = false;
-  sendCommand('set_light_threshold', parseInt(e.target.value, 10));
+  sendCommand('set_light_threshold', parseFloat(e.target.value));
 });
 
 document.getElementById('btnSaveSchedule').addEventListener('click', async () => {

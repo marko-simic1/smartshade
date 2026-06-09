@@ -10,8 +10,7 @@ const {
   getConfiguredRoomIdsByHa,
   getEntityIds,
   getRoomHa,
-  replaceRoomConfig,
-  GLOBAL_ENTITY_IDS
+  replaceRoomConfig
 } = require('./roomStore');
 
 const RECONNECT_MS = 5000;
@@ -144,8 +143,6 @@ function createHaManager(env, { onRoomsChanged }) {
     for (const roomId of getConfiguredRoomIdsByHa(instance.id)) {
       entityIds.push(...Object.values(getEntityIds(roomId) || {}));
     }
-    // Globalne postavke intenziteta svjetla (zajedničke za instancu)
-    entityIds.push(...GLOBAL_ENTITY_IDS);
 
     for (const entityId of entityIds) {
       loads.push(

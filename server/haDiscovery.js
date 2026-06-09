@@ -81,6 +81,31 @@ function helperRole(entity) {
   return null;
 }
 
+function lightControlRole(entity) {
+  const entityId = entity.entity_id || '';
+  const [domain] = entityId.split('.');
+  const text = helperText(entity);
+  const mentionsLight = text.includes('light') || text.includes('svjet');
+
+  if (domain === 'input_select' && mentionsLight && text.includes('preset')) {
+    return 'lightPreset';
+  }
+
+  if (
+    domain === 'input_number' &&
+    mentionsLight &&
+    (
+      text.includes('threshold') ||
+      text.includes('treshold') ||
+      text.includes('prag')
+    )
+  ) {
+    return 'lightThreshold';
+  }
+
+  return null;
+}
+
 function scheduleHelpersForArea(areaId, helperEntities) {
   if (!areaId) return {};
 
@@ -109,13 +134,51 @@ function scheduleHelpersForRoom(entitiesForRoom, helperIds, areaId, helperEntiti
   return scheduleHelpersForArea(areaId, helperEntities);
 }
 
+function lightControlsForArea(areaId, areaName, controlEntities) {
+  const areaSlug = slugify(areaName);
+  const areaCompact = areaSlug.replace(/_/g, '');
+
+  const controls = controlEntities
+    .filter(entity =>
+      (areaId && entity.areaId === areaId) ||
+      (areaSlug && !entity.areaId && (
+        entity.text.includes(areaSlug) ||
+        entity.compactText.includes(areaCompact)
+      ))
+    )
+    .sort((a, b) => a.entityId.localeCompare(b.entityId));
+
+  return {
+    lightPreset: controls.find(entity => entity.role === 'lightPreset')?.entityId || null,
+    lightThreshold: controls.find(entity => entity.role === 'lightThreshold')?.entityId || null
+  };
+}
+
+function lightControlsForRoom(entitiesForRoom, helperIds, areaId, areaName, controlEntities) {
+  const shadeObjectId = objectIdFromEntityId(entitiesForRoom.shade).replace(/_shade$/, '');
+  const conventional = {
+    lightPreset: helperExists(helperIds, `input_select.${shadeObjectId}_light_preset`) ||
+      helperExists(helperIds, `input_select.${shadeObjectId}_preset`),
+    lightThreshold: helperExists(helperIds, `input_number.${shadeObjectId}_custom_light_threshold`) ||
+      helperExists(helperIds, `input_number.${shadeObjectId}_light_threshold`) ||
+      helperExists(helperIds, `input_number.${shadeObjectId}_custom_light_treshold`) ||
+      helperExists(helperIds, `input_number.${shadeObjectId}_light_treshold`)
+  };
+
+  const byArea = lightControlsForArea(areaId, areaName, controlEntities);
+  return {
+    lightPreset: conventional.lightPreset || byArea.lightPreset,
+    lightThreshold: conventional.lightThreshold || byArea.lightThreshold
+  };
+}
+
 function buildPhysicalRoomConfigs(areas, devices, entities) {
   const areasById = Object.fromEntries((areas || []).map(area => [area.area_id, area]));
   const devicesById = Object.fromEntries((devices || []).map(device => [device.id, device]));
   const helperIds = new Set(
     (entities || [])
       .map(entity => entity.entity_id)
-      .filter(entityId => String(entityId || '').startsWith('input_datetime.'))
+      .filter(entityId => /^(input_datetime|input_select|input_number)\./.test(String(entityId || '')))
   );
   const helperEntities = (entities || [])
     .filter(entity => String(entity.entity_id || '').startsWith('input_datetime.'))
@@ -123,6 +186,16 @@ function buildPhysicalRoomConfigs(areas, devices, entities) {
       entityId: entity.entity_id,
       areaId: entityAreaId(entity, devicesById),
       role: helperRole(entity)
+    }))
+    .filter(entity => entity.role);
+  const controlEntities = (entities || [])
+    .filter(entity => /^(input_select|input_number)\./.test(String(entity.entity_id || '')))
+    .map(entity => ({
+      entityId: entity.entity_id,
+      areaId: entityAreaId(entity, devicesById),
+      text: helperText(entity),
+      compactText: helperText(entity).replace(/[^a-z0-9]+/g, ''),
+      role: lightControlRole(entity)
     }))
     .filter(entity => entity.role);
   const entitiesByDevice = {};
@@ -167,7 +240,8 @@ function buildPhysicalRoomConfigs(areas, devices, entities) {
         areaId: device.area_id || null,
         entities: {
           ...entitiesForRoom,
-          ...scheduleHelpersForRoom(entitiesForRoom, helperIds, device.area_id, helperEntities)
+          ...scheduleHelpersForRoom(entitiesForRoom, helperIds, device.area_id, helperEntities),
+          ...lightControlsForRoom(entitiesForRoom, helperIds, device.area_id, areaName, controlEntities)
         }
       };
     })

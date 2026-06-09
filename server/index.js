@@ -196,17 +196,20 @@ app.post('/api/rooms/:id/command', requireAuth, async (req, res) => {
         await call('select', 'select_option', { entity_id: e.mode, option: value });
         break;
       case 'set_light_preference': {
+        if (!e.lightPreset) return res.status(400).json({ error: 'Soba nema light preset helper' });
         const presetMap = { low: 'Low', medium: 'Medium', high: 'High', custom: 'Custom' };
         await call('input_select', 'select_option', {
-          entity_id: 'input_select.light_preset',
+          entity_id: e.lightPreset,
           option: presetMap[value] || value
         });
         break;
       }
       case 'set_light_threshold': {
-        const v = Math.max(200, Math.min(1200, parseInt(value, 10) || 0));
+        if (!e.lightThreshold) return res.status(400).json({ error: 'Soba nema custom light threshold helper' });
+        const v = Number(value);
+        if (!Number.isFinite(v)) return res.status(400).json({ error: 'Neispravan prag svjetla' });
         await call('input_number', 'set_value', {
-          entity_id: 'input_number.custom_light_threshold',
+          entity_id: e.lightThreshold,
           value: v
         });
         break;
